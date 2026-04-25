@@ -20,7 +20,7 @@ target_sources(Main
     src/main.c
 )
 message("${GRAPH_IMPLEMENTATION}")
-add_library(graph STATIC ${GRAPH_IMPLEMENTATION})
+add_library(graph STATIC ${GRAPH_IMPLEMENTATION} src/assert.c)
 target_sources(graph
   PUBLIC
     FILE_SET graph
