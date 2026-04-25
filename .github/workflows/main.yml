@@ -1,0 +1,35 @@
+name: Build GraphADT
+
+env:
+  project_name: graphADT
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-ubuntu:
+    runs-on: ubuntu-latest
+
+    steps:
+        - uses: action/checkout@v4
+        - name: Install
+          run: |
+            sudo apt-get update
+            sudo apt-get install gcc cmake
+            
+        - name: Clear last build
+          run: |
+            if [ -d build ]; then
+              rm -rf build
+            fi
+
+        - name: Config cmake
+          run: cmake -S . -B build -D CMAKE_BUILD_TYPE=Release -DADJACENCY_LIST=ON
+
+        - name: Build
+          run: cmake --build build --config Release
+
+        - name: Test
+          run: ctest --test-dir build --output-on-failure
