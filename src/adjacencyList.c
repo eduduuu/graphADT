@@ -55,10 +55,10 @@ add_vertex(Graph *g, int v) {
     return;
   }
 
-  g->adjacencyList = (Vertex**)realloc(g->adjacencyList, v * sizeof(Vertex));
+  g->adjacencyList = (Vertex**)realloc(g->adjacencyList, (v+1) * sizeof(Vertex));
   int num_vertices = g->num_vertices;
   g->num_vertices = v+1;
-  for (int i = num_vertices; i < v-1; i++)
+  for (int i = num_vertices; i < v; i++)
     add_edge(g, (Edge){i, -1});
   g->adjacencyList[v] = NULL;
 }
@@ -156,12 +156,12 @@ has_edge(Graph *g, Edge e) {
 
 Neighborhood
 neighbors(Graph *g, int v) {
-  Neighborhood n = {(const int*)&g->adjacencyList[v]->v, 1};
+  Neighborhood n = {(const int*)&(g->adjacencyList[v]->v), 1};
   return n;
 }
 
 Neighborhood next_neighbors(Graph *g, Neighborhood n) {
-  Neighborhood n2 = {(const int*)&((Vertex*)(n.neighbors+1))->v, 1};
+  Neighborhood n2 = {(const int*)&(((Vertex*)n.neighbors)->n->v), 1};
   return n2;
 }
 

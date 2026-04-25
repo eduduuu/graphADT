@@ -25,6 +25,6 @@ Neighborhood neighbors(Graph *g, int v);
 Neighborhood next_neighbors(Graph *g, Neighborhood n);
 void print_graph(Graph *g);
 
-int assert_vertex(int (*p_func)(Graph*, int), Graph *p_g, int v);
-int assert_edge(int (*p_func)(Graph*, Edge), Graph *p_g, Edge e);
+int assert_vertex(int (*p_func)(Graph*, int), Graph *p_g, int v, int expectedValue);
+int assert_edge(int (*p_func)(Graph*, Edge), Graph *p_g, Edge e, int expectedValue);
 #endif
