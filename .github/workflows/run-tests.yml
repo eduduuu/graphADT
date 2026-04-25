@@ -1,4 +1,4 @@
-name: Build GraphADT
+name: Test GraphADT
 
 env:
   project_name: graphADT
