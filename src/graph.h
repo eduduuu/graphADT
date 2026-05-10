@@ -23,6 +23,7 @@ int has_edge(Graph *g, Edge e);
 int has_vertex(Graph *g, int v);
 Neighborhood neighbors(Graph *g, int v);
 Neighborhood next_neighbors(Graph *g, Neighborhood n);
+void destruct_neighborhood(Neighborhood n);
 void print_graph(Graph *g);
 
 int assert_vertex(int (*p_func)(Graph*, int), Graph *p_g, int v, int expectedValue);

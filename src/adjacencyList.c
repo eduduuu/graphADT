@@ -165,6 +165,10 @@ Neighborhood next_neighbors(Graph *g, Neighborhood n) {
   return n2;
 }
 
+void destruct_neighborhood(Neighborhood n) {
+  return;
+}
+
 void
 print_graph(Graph *g) {
   Vertex *v;

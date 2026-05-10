@@ -9,9 +9,10 @@ void assert_neighbors(Graph *p_g, int v, int *neighborsArray, int num_vertices) 
       if (neighborsArray[n.neighbors[i]]) {
         printf("nok 1 index: %d %d", i, n.neighbors[i]);
         destruct_graph(p_g);
+        destruct_neighborhood(n);
         exit(1);
       }
-
+      printf("%d ", n.neighbors[i]);
       neighborsArray[n.neighbors[i]] = 1; 
     }
     n = next_neighbors(p_g, n);
@@ -21,9 +22,12 @@ void assert_neighbors(Graph *p_g, int v, int *neighborsArray, int num_vertices) 
     if (neighborsArray[i] == 0) {
         printf("nok index: %d", i);
         destruct_graph(p_g);
+        destruct_neighborhood(n);
         exit(1);
       }
   }
+
+  destruct_neighborhood(n);
 }
 
 int main() {
