@@ -1,5 +1,6 @@
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 #include "graph.h"
 
 struct Graph {
@@ -20,7 +21,7 @@ create_graph(int v) {
     p_g->vertex_array = NULL;
     p_g->edges_array = NULL;
   }
-  p_g->num_vertices = v+1;
+  p_g->num_vertices = v;
   p_g->num_edges = 0;
   p_g->edges_array = NULL;
 
@@ -68,14 +69,13 @@ int
 has_vertex(Graph *g, int v) {
   if (v >= g->num_vertices)
     return 0;
-
   return !g->vertices[v];
 }
 
 void
 add_edge(Graph *g, Edge e) {
  if (!has_vertex(g, e.u) || !has_vertex(g, e.v) || has_edge(g, e))
-    return 0;
+    return;
 
   g->edges_array = (int*)realloc(g->edges_array, sizeof(int) * (g->num_edges+1));
   g->num_edges++;
@@ -122,8 +122,49 @@ int has_edge(Graph *g, Edge e) {
 }
 
 
-void erase_edge(Graph *g, Edge e);
-void erase_vertex(Graph *g, int v);
+void
+erase_edge(Graph *g, Edge e) {
+  if (!has_edge(g, e))
+    return;
+  
+  int edge_index = g->vertex_array[e.u];
+  int next_vertex_edges;
+  if (e.v == g->num_vertices-1)
+    next_vertex_edges = g->num_edges;
+  else
+    next_vertex_edges = g->vertex_array[e.u+1];
+
+  for (; edge_index < next_vertex_edges; edge_index++)
+    if (g->edges_array[edge_index] == e.v)
+      break;
+
+  if (edge_index != g->num_edges-1) {
+    memcpy(&g->edges_array[edge_index], &g->edges_array[edge_index+1], sizeof(int) * (g->num_edges - edge_index));
+    g->edges_array = (int*)realloc(g->edges_array, --g->num_edges);
+  }
+
+  for (int i = e.u+1; i < g->num_vertices; i++)
+    g->vertex_array[i]--;
+}
+
+void
+erase_vertex(Graph *g, int v) {
+  if (!has_vertex(g, v))
+    return;
+
+  g->vertices[v] = 1;
+  int num_edges_remove;
+
+  if (v != g->num_vertices - 1) {
+    int *vertex_edges = &g->edges_array[g->vertex_array[v]];
+    int *next_vertex_edges = &g->edges_array[g->vertex_array[v+1]];
+    num_edges_remove = next_vertex_edges - vertex_edges;
+    memcpy(vertex_edges, next_vertex_edges, sizeof(int) * num_edges_remove);
+  } else {
+    num_edges_remove = g->num_edges - g->vertex_array[v];
+  }
+  g->edges_array = (int*)realloc(g->edges_array, num_edges_remove);
+}
 
 Neighborhood neighbors(Graph *g, int v) {
   Neighborhood n;
@@ -131,7 +172,7 @@ Neighborhood neighbors(Graph *g, int v) {
     n.neighbors = NULL;
     n.blockSize = 0;
   } else {
-    n.neighbors = g->edges_array[g->vertex_array[v]];
+    n.neighbors = &g->edges_array[g->vertex_array[v]];
     if (v == g->num_vertices - 1)
       n.blockSize = g->num_edges = g->vertex_array[v];
     else
@@ -149,4 +190,6 @@ void destruct_neighborhood(Neighborhood n) {
   return;
 }
 
-void print_graph(Graph *g);
+void print_graph(Graph *g) {
+
+}

@@ -2,24 +2,25 @@ cmake_minimum_required(VERSION 3.31)
 
 project(GraphADT C)
 
-option(ADJACENCY_LIST "Use Adjacency List" OFF)
-option(ADJACENCY_MATRIX "Use Adjacency Matrix" OFF)
+set(IMPLEMENTATION "ADJACENCY_LIST" CACHE STRING "Graph Implementation")
 
 set(GRAPH_IMPLEMENTATION "")
-if(ADJACENCY_LIST)
-  set(GRAPH_IMPLEMENTATION src/adjacencyList.c)
-elseif(ADJACENCY_MATRIX)
+if(IMPLEMENTATION STREQUAL "CSR")
+  set(GRAPH_IMPLEMENTATION src/csr.c)
+elseif(IMPLEMENTATION STREQUAL "ADJACENCY_MATRIX")
   set(GRAPH_IMPLEMENTATION src/adjacencyMatrix.c)
-else()
+elseif(IMPLEMENTATION STREQUAL "ADJACENCY_LIST")
   set(GRAPH_IMPLEMENTATION src/adjacencyList.c)
 endif()
+
+message("${GRAPH_IMPLEMENTATION}")
 
 add_executable(Main)
 target_sources(Main
   PRIVATE
     src/main.c
 )
-message("${GRAPH_IMPLEMENTATION}")
+
 add_library(graph STATIC ${GRAPH_IMPLEMENTATION} src/assert.c)
 target_sources(graph
   PUBLIC
