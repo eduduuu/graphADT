@@ -13,6 +13,7 @@ typedef struct Neighborhood {
 } Neighborhood;
 
 Graph *create_graph(int v);
+int get_num_vertices(Graph *g);
 void destruct_graph(Graph *g);
 void add_vertex(Graph *g, int v);
 void add_edge(Graph *g, Edge e);

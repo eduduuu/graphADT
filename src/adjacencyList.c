@@ -44,6 +44,11 @@ destruct_graph(Graph *g) {
   free(g);
 }
 
+int
+get_num_vertices(Graph *g) {
+  return g->num_vertices;
+}
+
 void
 add_vertex(Graph *g, int v) {
   if (g->num_vertices > v) {
@@ -74,7 +79,7 @@ has_vertex(Graph *g, int v) {
 
 void
 add_edge(Graph *g, Edge e) {
-  if (g->num_vertices <= e.u || (g->adjacencyList[e.u] && g->adjacencyList[e.u]->v == -1))
+  if (!has_vertex(g, e.u) || !has_vertex(g, e.v) || has_edge(g, e))
     return;
   Vertex *v = (Vertex*)malloc(sizeof(Vertex));
   v->n = g->adjacencyList[e.u];
@@ -89,7 +94,7 @@ void add_edges(Graph *g, Edge **e, size_t size) {
 
 void
 erase_edge(Graph *g, Edge e) {
-  if (g->num_vertices <= e.u || !has_vertex(g, e.u))
+  if (!has_vertex(g, e.u) || !has_edge(g, e))
     return;
 
   Vertex *current = g->adjacencyList[e.u];

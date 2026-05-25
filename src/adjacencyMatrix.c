@@ -27,6 +27,11 @@ void destruct_graph(Graph *g) {
   free(g);
 }
 
+int
+get_num_vertices(Graph *g) {
+  return g->num_vertices;
+}
+
 void
 add_vertex(Graph *g, int v) {
   if (g->num_vertices > v) {
