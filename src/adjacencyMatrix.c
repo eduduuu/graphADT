@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <string.h>
+#include <errno.h>
 #include "graph.h"
 
 struct Graph {
@@ -13,6 +14,12 @@ Graph
   Graph *g = (Graph*)malloc(sizeof(Graph));
   g->num_vertices = v;
   g->adjacencyMatrix = (int*)calloc(v * v, sizeof(int));
+  if (!g->adjacencyMatrix) {
+    printf("error on allocation\n");
+    printf("%s\n", strerror(errno));
+    exit(0);
+  }
+
   for (int i = 0; i < v * v; i++)
     g->adjacencyMatrix[i] = 0;
 
@@ -34,6 +41,9 @@ get_num_vertices(Graph *g) {
 
 void
 add_vertex(Graph *g, int v) {
+  if (has_vertex(g, v))
+    return;
+
   if (g->num_vertices > v) {
     g->vertices[v] = 0;
     return;
@@ -41,7 +51,7 @@ add_vertex(Graph *g, int v) {
 
   int *auxiliarMatrix = (int*)calloc((v+1) * (v+1), sizeof(int));
   for (int i = 0; i < g->num_vertices; i++)
-    memcpy(&auxiliarMatrix[i*(v+1)], &g->adjacencyMatrix[i*(g->num_vertices+1)], g->num_vertices);
+    memcpy(&auxiliarMatrix[i*(v+1)], &g->adjacencyMatrix[i*(g->num_vertices)], g->num_vertices);
 
   free(g->adjacencyMatrix);
   g->adjacencyMatrix = auxiliarMatrix;
@@ -56,7 +66,7 @@ add_vertex(Graph *g, int v) {
 
 int
 has_vertex(Graph *g, int v) {
-  if (v >= g->num_vertices)
+  if (v >= g->num_vertices || v < 0)
     return 0;
 
   return !g->vertices[v];
@@ -83,14 +93,13 @@ erase_edge(Graph *g, Edge e) {
 }
 
 void erase_vertex(Graph *g, int v) {
-  if (g->num_vertices <= v || g->vertices[v])
+  if (!has_vertex(g, v))
     return;
-
   g->vertices[v] = 1;
-
+    
   for (int i = 0; i < g->num_vertices; i++) {
     g->adjacencyMatrix[v*g->num_vertices + i] = 0;
-    g->adjacencyMatrix[i*g->num_vertices +v] = 0;
+    g->adjacencyMatrix[i*g->num_vertices + v] = 0;
   }
 }
 

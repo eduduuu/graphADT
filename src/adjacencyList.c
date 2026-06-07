@@ -10,16 +10,19 @@ typedef struct Vertex {
 struct Graph {
   int num_vertices;
   Vertex **adjacencyList;
+  int *vertices;
 };
 
 Graph*
 create_graph(int v) {
   Graph *g = (Graph*)malloc(sizeof(Graph)); 
-  g->adjacencyList = (Vertex**)malloc(v * sizeof(Vertex*));
+  g->adjacencyList = (Vertex**)malloc(v  * sizeof(Vertex*));
   g->num_vertices = v;
   for (int i = 0; i < v; i++) {
-    *(g->adjacencyList) = NULL;
+    g->adjacencyList[i] = NULL;
   }
+
+  g->vertices = (int*)calloc(v, sizeof(int));
 
   return g;
 }
@@ -28,8 +31,9 @@ void
 destruct_graph(Graph *g) {
   Vertex *v;
   Vertex *next;
+
   for (int i = 0; i < g->num_vertices; i++) {
-    if (!g->adjacencyList[i])
+    if (g->vertices[i] || !g->adjacencyList[i])
       continue;
     v = g->adjacencyList[i];
     next = v->n;
@@ -37,10 +41,12 @@ destruct_graph(Graph *g) {
       free(v);
       v = next;
       if (next)
-        next = next->n;
+      next = next->n;
     }
   }
+
   free(g->adjacencyList);
+  free(g->vertices);
   free(g);
 }
 
@@ -51,30 +57,28 @@ get_num_vertices(Graph *g) {
 
 void
 add_vertex(Graph *g, int v) {
-  if (g->num_vertices > v) {
-    if (g->adjacencyList[v] && g->adjacencyList[v]->v == -1) {
-      free(g->adjacencyList[v]);
-      g->adjacencyList[v] = NULL;
-    }
-
+  if (has_vertex(g, v))
     return;
+
+  if (g->num_vertices <= v) {
+    g->adjacencyList = (Vertex**)realloc(g->adjacencyList, (v+1) * sizeof(Vertex));
+    int num_vertices = g->num_vertices;
+    for (int i = num_vertices; i <= v; i++) {
+      g->vertices[i] = 1;
+      g->adjacencyList[i] = NULL;
+    }
+    g->num_vertices = v+1;
   }
 
-  g->adjacencyList = (Vertex**)realloc(g->adjacencyList, (v+1) * sizeof(Vertex));
-  int num_vertices = g->num_vertices;
-  g->num_vertices = v+1;
-  for (int i = num_vertices; i < v; i++)
-    add_edge(g, (Edge){i, -1});
-  g->adjacencyList[v] = NULL;
+  g->vertices[v] = 0;
 }
 
 int
 has_vertex(Graph *g, int v) {
-  // If the number of vertices is greater or equal the vertex and it doesnt has an edge or the edge is not to -1
-  //printf("%ld", g->adjacencyList[v]->v != -1);
-  if (g->num_vertices > v && (!g->adjacencyList[v] || g->adjacencyList[v]->v != -1))
-    return 1;
-  return 0;
+  if (v >= g->num_vertices || v < 0)
+    return 0;
+
+  return !g->vertices[v];
 }
 
 void
@@ -117,22 +121,18 @@ erase_edge(Graph *g, Edge e) {
 
 void
 erase_vertex(Graph *g, int v) {
-  if (g->num_vertices <= v)
+  if (!has_vertex(g, v))
       return;
 
+  g->vertices[v] = 1;
+  
   for (int i = 0; i < g->num_vertices; i++)
     if (i != v)
       erase_edge(g, (Edge){i, v});
 
-  if (!g->adjacencyList[v])
-    add_edge(g, (Edge){v, -1});
-  if (g->adjacencyList[v]->v == -1)
-    return;
   Vertex *u;
   Vertex *next;
   u = g->adjacencyList[v];
-  u->v = -1;
-  u = u->n;
   if (!u)
     return;
   next = u->n;
@@ -142,6 +142,8 @@ erase_vertex(Graph *g, int v) {
     if (next)
       next = next->n;
   }
+
+  g->adjacencyList[v] = NULL;
 }
 
 int

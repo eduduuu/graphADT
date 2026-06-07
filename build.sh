@@ -1,5 +1,5 @@
 #!/bin/bash
 
 rm -rf build/
-cmake -G Ninja -B build -DIMPLEMENTATION=ADJACENCY_LIST
+cmake -B build -DIMPLEMENTATION=ADJACENCY_LIST -DCMAKE_BUILD_TYPE=Debug
 cmake --build build

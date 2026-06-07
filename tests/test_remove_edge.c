@@ -88,8 +88,8 @@ int main() {
   assert_edge(has_edge, p_g, (Edge){1, 1}, 0);
   assert_edge(has_edge, p_g, (Edge){2, 2}, 0);
 
-  printf("ok 8\n");
   destruct_graph(p_g);
+  printf("ok\n");
 
   return 0;
 }
