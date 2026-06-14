@@ -117,6 +117,23 @@ erase_edge(Graph *g, Edge e) {
     previous = current;
     current = current->n;
   }
+
+  current = g->adjacencyList[e.v];
+  previous = NULL;
+  while (current) {
+    if (current->v == e.u) {
+      if (previous)
+        previous->n = current->n;
+      else
+        g->adjacencyList[e.v] = current->n; 
+      
+      free(current);
+      return;
+    }
+
+    previous = current;
+    current = current->n;
+  }
 }
 
 void
@@ -163,6 +180,8 @@ has_edge(Graph *g, Edge e) {
 
 Neighborhood
 neighbors(Graph *g, int v) {
+  if (!has_vertex(g, v))
+    return (Neighborhood){NULL, 0};
   Neighborhood n = {(const int*)&(g->adjacencyList[v]->v), 1};
   return n;
 }

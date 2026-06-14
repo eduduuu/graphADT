@@ -21,7 +21,7 @@ target_sources(Main
     src/main.c
 )
 
-add_library(graph STATIC ${GRAPH_IMPLEMENTATION} src/assert.c)
+add_library(graph STATIC ${GRAPH_IMPLEMENTATION} src/assert.c src/graphGenerator.c)
 target_sources(graph
   PUBLIC
     FILE_SET graph
@@ -29,6 +29,7 @@ target_sources(graph
     FILES
       src/graph.h
 )
+target_link_libraries(graph PRIVATE m)
 
 add_library(graphDao STATIC src/graphDao.c)
 target_sources(graphDao
@@ -47,5 +48,6 @@ target_link_libraries(Main
 enable_testing()
 include(CTest)
 include_directories(src)
+add_subdirectory(src)
 add_subdirectory(tests)
 add_subdirectory(benchmark)
