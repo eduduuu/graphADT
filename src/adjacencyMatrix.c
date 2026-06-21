@@ -4,9 +4,9 @@
 #include "graph.h"
 
 struct Graph {
-  int num_vertices;
   int *adjacencyMatrix;
   int *vertices;
+  int num_vertices;
 };
 
 Graph

@@ -18,7 +18,7 @@ static inline int rand_range(int n, unsigned short *seed) {
 }
 
 Graph*
-generate_graph(int v, double density) {
+generate_graph2(int v, double density) {
 	Graph *p_g = create_graph(v);
 	int *degrees = calloc(v, sizeof(int));
 	int *included = calloc(v, sizeof(int));
@@ -62,6 +62,67 @@ generate_graph(int v, double density) {
 		}
 	}
 
+	return p_g;
+}
+
+Graph*
+generate_graph(int v, double density) {
+	unsigned short seed[3];
+	srand((int)time(NULL));
+  	rand_init(seed);
+
+	Graph *p_g = create_graph(v);
+
+	int target_degree = ceil((v-1) * density);
+	if (target_degree % 2)
+		if (target_degree == v-1)
+			target_degree--;
+		else
+			target_degree++;
+
+	int *edges = (int*)malloc(sizeof(int) * target_degree * v);
+	int edge_index = 0;
+
+	for (int i = 0; i < v; i++) {
+		for (int j = 0; j < target_degree/2; j++) {
+			edges[edge_index] = i;
+			edges[edge_index+1] = (i+ j + 1) % v;
+			edge_index += 2;
+		}
+	}
+
+
+	for (int i = 0; i < edge_index; i += 2) {
+		add_edge(p_g, (Edge){edges[i], edges[i+1]});
+		add_edge(p_g, (Edge){edges[i+1], edges[i]});
+	}
+	
+	for (int i = 0; i < target_degree * v; i++) {
+		int u = rand_range(edge_index / 2, seed);
+		int v = rand_range(edge_index / 2, seed);
+
+		if (!has_edge(p_g, (Edge){edges[u*2], edges[v*2+1]}) && !has_edge(p_g, (Edge){edges[v*2], edges[u*2+1]})
+			&& edges[u*2] != edges[v*2+1] && edges[v*2] != edges[u*2+1]) {
+			erase_edge(p_g, (Edge){edges[u*2], edges[u*2+1]});
+			erase_edge(p_g, (Edge){edges[u*2+1], edges[u*2]});
+
+			erase_edge(p_g, (Edge){edges[v*2], edges[v*2+1]});
+			erase_edge(p_g, (Edge){edges[v*2+1], edges[v*2]});
+
+			add_edge(p_g, (Edge){edges[u*2], edges[v*2+1]});
+			add_edge(p_g, (Edge){edges[v*2+1], edges[u*2]});
+
+			add_edge(p_g, (Edge){edges[v*2], edges[u*2+1]});
+			add_edge(p_g, (Edge){edges[u*2+1], edges[v*2]});
+
+			int w = edges[u*2];
+			edges[u*2] = edges[v*2];
+			edges[v*2] = w;
+		}
+	}
+
+	free(edges);
+	
 	return p_g;
 }
 

@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include <assert.h>
 #include <stdio.h>
 #include <time.h>
@@ -19,21 +20,21 @@ static inline void rand_init(unsigned short *seed)
 
 static inline int rand_range(int n, unsigned short *seed) {
   int v = (int)(erand48(seed) * n);
-  assert (v >= 0 && v < n);
+  //assert (v >= 0 && v < n);
   return v;
 }
 
 typedef struct micro_bech {
   Graph *p_g;
+  int *op_array;
   int vertex_insertions;
   int vertex_deletions;
   int edge_insertions;
   int edge_deletions;
   int edge_searches;
-  int op_distribution[3];
-  int *op_array;
   int op_count;
   int duration;
+  int op_distribution[3];
   unsigned short seed[3];
 } micro_bench;
 
@@ -42,7 +43,6 @@ static void*
 test_random(void *p_mb_) {
   micro_bench *p_mb = (micro_bench*)p_mb_;
   int op, u, v;
-  int insert_edge = 1;
 
   while (stop == 0) {
     op = rand_range(100, p_mb->seed);
@@ -59,18 +59,14 @@ test_random(void *p_mb_) {
       
     // edge update
     } else if (op < p_mb->op_distribution[1]) {
-      if (insert_edge) {
-        u = rand_range(get_num_vertices(p_mb->p_g), p_mb->seed);
-        v = rand_range(get_num_vertices(p_mb->p_g), p_mb->seed);
+      u = rand_range(get_num_vertices(p_mb->p_g), p_mb->seed);
+      v = rand_range(get_num_vertices(p_mb->p_g), p_mb->seed);
+      if (!has_edge(p_mb->p_g, (Edge){u, v})) {
         add_edge(p_mb->p_g, (Edge){u, v});
         p_mb->edge_insertions++;
-        insert_edge = 0;
       } else {
-        u = rand_range(get_num_vertices(p_mb->p_g), p_mb->seed);
-        v = rand_range(get_num_vertices(p_mb->p_g), p_mb->seed);
         erase_edge(p_mb->p_g, (Edge){u, v});
         p_mb->edge_deletions++;
-        insert_edge = 1;
       }
     // edge search
     } else if (op < p_mb->op_distribution[2]) {
@@ -95,6 +91,7 @@ void run_test(micro_bench *p_mb, void*(test_func)(void*)) {
   pthread_attr_t attr;
   pthread_attr_init(&attr);
   pthread_create(thread, &attr, test_func, (void*)p_mb);
+  pthread_setname_np(*thread, "bech_thread");
 
   gettimeofday(&start, NULL);
   nanosleep(&timeout, NULL);
@@ -129,13 +126,13 @@ void choose_edge(Graph *g, unsigned short seed[3], int has, Edge* edge) {
   for (int i = u; i < get_num_vertices(g); i++) {
     for (int j = v; j < get_num_vertices(g); j++) {
       if (has_vertex(g, i) && has_vertex(g, j) && has_edge(g, (Edge){i, j}) == has) {
-        *edge = (Edge){u, v};
+        *edge = (Edge){i, j};
         return;
       } 
     }
     for (int j = v; j >= 0; j--) {
       if (has_vertex(g, i) && has_vertex(g, j) && has_edge(g, (Edge){i, j}) == has) {
-        *edge = (Edge){u, v};
+        *edge = (Edge){i, j};
         return;
       } 
     }
@@ -144,13 +141,13 @@ void choose_edge(Graph *g, unsigned short seed[3], int has, Edge* edge) {
   for (int i = u; i >= 0; i--) {
     for (int j = v; j < get_num_vertices(g); j++) {
       if (has_vertex(g, i) && has_vertex(g, j) && has_edge(g, (Edge){i, j}) == has) {
-        *edge = (Edge){u, v};
+        *edge = (Edge){i, j};
         return;
       } 
     }
     for (int j = v; j >= 0; j--) {
       if (has_vertex(g, i) && has_vertex(g, j) && has_edge(g, (Edge){i, j}) == has) {
-        *edge = (Edge){u, v};
+        *edge = (Edge){i, j};
         return;
       } 
     }
@@ -196,13 +193,16 @@ test(void *p_mb_) {
 
 int* generate_operations(micro_bench *p_mb) {
   Graph *g = copy_graph(p_mb->p_g);
-  int sample_duration = 1000;
+  int sample_duration = 1000, duration = p_mb->duration;
   p_mb->duration = sample_duration;
 
   
   run_test(p_mb, test_random);
+  printf("Ran Sample\n");
+  fflush(stdout);
   
-  double factor = (p_mb->duration / sample_duration) * 2;
+  p_mb->duration = duration;
+  double factor = (p_mb->duration / sample_duration) * 10;
   printf("factor: %f\n", factor);
   
   int vertex_update = ceil((p_mb->vertex_insertions + p_mb->vertex_deletions)* factor);
@@ -224,7 +224,8 @@ int* generate_operations(micro_bench *p_mb) {
   while (1) {
     if (vertex_update + edge_update + edge_searches == 0)
       break;
-
+    //printf("%d %d %d\n", vertex_update, edge_update, edge_searches);
+    //fflush(stdout);
     op = rand_range(100, p_mb->seed);
     // vertex update
     if (op < p_mb->op_distribution[0]) {
@@ -270,7 +271,7 @@ int* generate_operations(micro_bench *p_mb) {
 
     // search edge
     } else if (op < p_mb->op_distribution[2]) {
-      if (!edge_update)
+      if (!edge_searches)
         continue;
 
       choose_edge(g, p_mb->seed, 1, &edge);
@@ -291,19 +292,38 @@ int* generate_operations(micro_bench *p_mb) {
   p_mb->edge_searches = 0;
 
   destruct_graph(g);
+
+  printf("Generated Operations\n");
+  fflush(stdout);
 }
 
-void main(int argc, char **argv) {
-  int duration = 10000;
-  int size = 10000;
+int main(int argc, char **argv) {
+  int duration = 1000;
+  int size = 100;
   double density = 0.75;
+  int operations[] = {25, 25, 50};
+  int mode = 0;
+  int factor = 2;
+  char file_name[50];
+  file_name[0] = '\0';
 
+  /*
+    t = test duration
+    s = graph size
+    d = graph density
+    a = vertex update
+    b = edge update
+    c = edge search
+    m = type of test
+    f = factor
+    w = file to write
+  */
   char opt;
-  while ((opt = getopt(argc, argv, "t:s:d:")) != -1) {
+  while ((opt = getopt(argc, argv, "t:s:d:a:b:c:m:f:w:")) != -1) {
     switch (opt) {
       case 't':
         printf("time: %s\n", optarg);
-        duration = atoi(optarg) * 1000;
+        duration = atoi(optarg);
         break;
       case 's':
         printf("size: %s\n", optarg);
@@ -313,12 +333,39 @@ void main(int argc, char **argv) {
         density = atof(optarg);
         printf("density: %s\n", optarg);
         break;
-      default:
+      case 'a':
+        operations[0] = atoi(optarg);
+        break;
+      case 'b':
+        operations[1] = atoi(optarg);
+        break;
+      case 'c':
+        operations[2] = atoi(optarg);
+        break;
+      case 'm':
+        mode = atoi(optarg);
+        break;
+      case 'f':
+        factor = atoi(optarg);
+        break;
+      case 'w':
+        strcpy(file_name, optarg);
+        break;
     }
   }
+  operations[1] = operations[0] + operations[1];
+  operations[2] = operations[1] + operations[2];
 
+  assert(operations[2] == 100);
+  assert(size >= 1);
+  assert(density > 0 && density <= 1);
+  assert(mode == 0 || mode == 1);
+  
   micro_bench *p_mb = (micro_bench*)malloc(sizeof(micro_bench));
   p_mb->p_g = generate_graph(size, density);
+  printf("Generated Graph\n");
+  fflush(stdout);
+  
   //p_mb->p_g = create_graph(size);
   //srand((int)time(NULL));
   //rand_init(p_mb->seed);
@@ -330,12 +377,19 @@ void main(int argc, char **argv) {
   p_mb->edge_searches = 0;
   p_mb->duration = duration;
 
-  int operations[] = {0, 50, 100};
-  memcpy(p_mb->op_distribution, operations, sizeof(operations));
+  
+  p_mb->op_distribution[0] = operations[0];
+  p_mb->op_distribution[1] = operations[1];
+  p_mb->op_distribution[2] = operations[2];
 
-  generate_operations(p_mb);
+  if (mode) {
+    generate_operations(p_mb);
+  
+    run_test(p_mb, test);
+  } else {
+    run_test(p_mb, test_random);
+  }
 
-  run_test(p_mb, test);
  
   /*
   stop = 0;
@@ -363,14 +417,31 @@ void main(int argc, char **argv) {
   
   duration = (end.tv_sec * 1000 + end.tv_usec / 1000) - (start.tv_sec * 1000 + start.tv_usec / 1000);
   */
-  printf("Duration           : %d (ms)\n", duration);
-  printf("# v insert txs     : %d (%f / s)\n", p_mb->vertex_insertions, p_mb->vertex_insertions * 1000.0 / duration);
-  printf("# v del txs        : %d (%f / s)\n", p_mb->vertex_deletions, p_mb->vertex_deletions * 1000.0 / duration);
-  printf("# e inser txs      : %d (%f / s)\n", p_mb->edge_insertions, p_mb->edge_insertions * 1000.0 / duration);
-  printf("# e deltxs         : %d (%f / s)\n", p_mb->edge_deletions, p_mb->edge_deletions * 1000.0 / duration);
-  printf("# e searchtxs      : %d (%f / s)\n", p_mb->edge_searches, p_mb->edge_searches * 1000.0 / duration);
-  
+  if (file_name[0] != '\0') {
+    int insert_header = access(file_name, F_OK);
+    FILE *fptr = fopen(file_name, "a");
+
+    if (insert_header) {
+      fprintf(fptr, "size,duration,density,v_updates,e_updates,e_searchs,mode,factor,v_insert,v_del,e_insert,e_del,e_searches\n");
+    }
+
+    fprintf(fptr, "%d,%d,%f,%d,%d,%d,%d,%d,", size, duration, density, operations[0], operations[1], operations[2], mode, factor);
+    fprintf(fptr, "%d,%d,%d,%d,%d\n", p_mb->vertex_insertions, p_mb->vertex_deletions,
+      p_mb->edge_insertions, p_mb->edge_deletions, p_mb->edge_searches);
+
+    fclose(fptr);
+  } else {
+    printf("Duration           : %d (ms)\n", duration);
+    printf("# v insert txs     : %d (%f / s)\n", p_mb->vertex_insertions, p_mb->vertex_insertions * 1000.0 / duration);
+    printf("# v del txs        : %d (%f / s)\n", p_mb->vertex_deletions, p_mb->vertex_deletions * 1000.0 / duration);
+    printf("# e inser txs      : %d (%f / s)\n", p_mb->edge_insertions, p_mb->edge_insertions * 1000.0 / duration);
+    printf("# e deltxs         : %d (%f / s)\n", p_mb->edge_deletions, p_mb->edge_deletions * 1000.0 / duration);
+    printf("# e searchtxs      : %d (%f / s)\n", p_mb->edge_searches, p_mb->edge_searches * 1000.0 / duration); 
+  }
+
   destruct_graph(p_mb->p_g);
   free(p_mb->op_array);
   free(p_mb);
+
+  return 0;
 }
