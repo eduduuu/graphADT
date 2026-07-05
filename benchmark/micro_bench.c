@@ -303,7 +303,8 @@ int main(int argc, char **argv) {
   double density = 0.75;
   int operations[] = {25, 25, 50};
   int mode = 0;
-  int factor = 2;
+  int factor = 1;
+  double shuffle_factor = 0;
   char file_name[50];
   file_name[0] = '\0';
 
@@ -317,9 +318,10 @@ int main(int argc, char **argv) {
     m = type of test
     f = factor
     w = file to write
+    g = factor to shuffle edges
   */
   char opt;
-  while ((opt = getopt(argc, argv, "t:s:d:a:b:c:m:f:w:")) != -1) {
+  while ((opt = getopt(argc, argv, "t:s:d:a:b:c:m:f:w:g:")) != -1) {
     switch (opt) {
       case 't':
         printf("time: %s\n", optarg);
@@ -351,6 +353,9 @@ int main(int argc, char **argv) {
       case 'w':
         strcpy(file_name, optarg);
         break;
+      case 'g':
+        shuffle_factor = atoi(optarg);
+        break;
     }
   }
   operations[1] = operations[0] + operations[1];
@@ -362,7 +367,7 @@ int main(int argc, char **argv) {
   assert(mode == 0 || mode == 1);
   
   micro_bench *p_mb = (micro_bench*)malloc(sizeof(micro_bench));
-  p_mb->p_g = generate_graph(size, density);
+  p_mb->p_g = generate_graph(size, density, shuffle_factor);
   printf("Generated Graph\n");
   fflush(stdout);
   

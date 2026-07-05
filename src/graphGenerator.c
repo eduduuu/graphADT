@@ -66,7 +66,7 @@ generate_graph2(int v, double density) {
 }
 
 Graph*
-generate_graph(int v, double density) {
+generate_graph(int v, double density, double shuffle_factor) {
 	unsigned short seed[3];
 	srand((int)time(NULL));
   	rand_init(seed);
@@ -96,8 +96,10 @@ generate_graph(int v, double density) {
 		add_edge(p_g, (Edge){edges[i], edges[i+1]});
 		add_edge(p_g, (Edge){edges[i+1], edges[i]});
 	}
+
+	int random_edges = ceil(target_degree * v * shuffle_factor);
 	
-	for (int i = 0; i < target_degree * v; i++) {
+	for (int i = 0; i < random_edges; i++) {
 		int u = rand_range(edge_index / 2, seed);
 		int v = rand_range(edge_index / 2, seed);
 
