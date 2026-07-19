@@ -388,10 +388,16 @@ int main(int argc, char **argv) {
   p_mb->op_distribution[2] = operations[2];
 
   if (mode) {
+    printf("generating operations\n");
+    fflush(stdout);
     generate_operations(p_mb);
   
+    printf("Running test\n");
+    fflush(stdout);
     run_test(p_mb, test);
   } else {
+    printf("Running test\n");
+    fflush(stdout);
     run_test(p_mb, test_random);
   }
 
@@ -423,10 +429,14 @@ int main(int argc, char **argv) {
   duration = (end.tv_sec * 1000 + end.tv_usec / 1000) - (start.tv_sec * 1000 + start.tv_usec / 1000);
   */
   if (file_name[0] != '\0') {
+    printf("Adding to file");
+    fflush(stdout);
     int insert_header = access(file_name, F_OK);
     FILE *fptr = fopen(file_name, "a");
 
     if (insert_header) {
+      printf("Inserting Header");
+      fflush(stdout);
       fprintf(fptr, "size,duration,density,v_updates,e_updates,e_searchs,mode,factor,v_insert,v_del,e_insert,e_del,e_searches\n");
     }
 
@@ -442,11 +452,13 @@ int main(int argc, char **argv) {
     printf("# e inser txs      : %d (%f / s)\n", p_mb->edge_insertions, p_mb->edge_insertions * 1000.0 / duration);
     printf("# e deltxs         : %d (%f / s)\n", p_mb->edge_deletions, p_mb->edge_deletions * 1000.0 / duration);
     printf("# e searchtxs      : %d (%f / s)\n", p_mb->edge_searches, p_mb->edge_searches * 1000.0 / duration); 
+    fflush(stdout);
   }
 
   destruct_graph(p_mb->p_g);
   free(p_mb->op_array);
   free(p_mb);
+  
 
   return 0;
 }
