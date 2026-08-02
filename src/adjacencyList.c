@@ -91,9 +91,13 @@ add_edge(Graph *g, Edge e) {
   g->adjacencyList[e.u] = v;
 }
 
-void add_edges(Graph *g, Edge **e, size_t size) {
-  for (size_t i = 0; i < size; i++)
-    add_edge(g, *e[i]);
+void add_edges(Graph *g, Edge *e, size_t size) {
+  for (size_t i = 0; i < size; i++) {
+    Vertex *v = (Vertex*)malloc(sizeof(Vertex));
+    v->n = g->adjacencyList[e[i].u];
+    v->v = e[i].v;
+    g->adjacencyList[e[i].u] = v;
+  }
 }
 
 void

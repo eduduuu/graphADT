@@ -71,8 +71,11 @@ generate_graph(int v, double density, double shuffle_factor) {
 	srand((int)time(NULL));
   	rand_init(seed);
 
+	printf("começou\n");
+	fflush(stdout);
 	Graph *p_g = create_graph(v);
-
+	printf("criou\n");
+	fflush(stdout);
 	int target_degree = ceil((v-1) * density);
 	if (target_degree % 2)
 		if (target_degree == v-1)
@@ -80,49 +83,62 @@ generate_graph(int v, double density, double shuffle_factor) {
 		else
 			target_degree++;
 
-	int *edges = (int*)malloc(sizeof(int) * target_degree * v);
+	Edge *edges = (Edge*)malloc(sizeof(Edge) * target_degree * v);
 	int edge_index = 0;
 
 	for (int i = 0; i < v; i++) {
 		for (int j = 0; j < target_degree/2; j++) {
-			edges[edge_index] = i;
-			edges[edge_index+1] = (i+ j + 1) % v;
-			edge_index += 2;
+			edges[edge_index] = (Edge){ i, (i + j + 1) % v };
+			edge_index += 1;
 		}
 	}
+	printf("fez o array\n");
+	fflush(stdout);
+	printf("%d\n", edge_index);
+	fflush(stdout);
+	add_edges(p_g, edges, edge_index);
 
-
+	/*
 	for (int i = 0; i < edge_index; i += 2) {
+		if (i % 100000) {
+			printf("%d\n", i);
+			fflush(stdout);
+		}
 		add_edge(p_g, (Edge){edges[i], edges[i+1]});
 		add_edge(p_g, (Edge){edges[i+1], edges[i]});
 	}
+	*/
+	printf("preencheu\n");
+	fflush(stdout);
 
 	int random_edges = ceil(target_degree * v * shuffle_factor);
 	
+	/*
 	for (int i = 0; i < random_edges; i++) {
 		int u = rand_range(edge_index / 2, seed);
 		int v = rand_range(edge_index / 2, seed);
-
+		
 		if (!has_edge(p_g, (Edge){edges[u*2], edges[v*2+1]}) && !has_edge(p_g, (Edge){edges[v*2], edges[u*2+1]})
-			&& edges[u*2] != edges[v*2+1] && edges[v*2] != edges[u*2+1]) {
+		&& edges[u*2] != edges[v*2+1] && edges[v*2] != edges[u*2+1]) {
 			erase_edge(p_g, (Edge){edges[u*2], edges[u*2+1]});
 			erase_edge(p_g, (Edge){edges[u*2+1], edges[u*2]});
-
+			
 			erase_edge(p_g, (Edge){edges[v*2], edges[v*2+1]});
 			erase_edge(p_g, (Edge){edges[v*2+1], edges[v*2]});
-
+			
 			add_edge(p_g, (Edge){edges[u*2], edges[v*2+1]});
 			add_edge(p_g, (Edge){edges[v*2+1], edges[u*2]});
-
+			
 			add_edge(p_g, (Edge){edges[v*2], edges[u*2+1]});
 			add_edge(p_g, (Edge){edges[u*2+1], edges[v*2]});
-
+			
 			int w = edges[u*2];
 			edges[u*2] = edges[v*2];
 			edges[v*2] = w;
 		}
 	}
-
+	*/
+	
 	free(edges);
 	
 	return p_g;

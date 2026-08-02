@@ -80,9 +80,9 @@ add_edge(Graph *g, Edge e) {
 }
 
 void
-add_edges(Graph *g, Edge **e, size_t size) {
+add_edges(Graph *g, Edge *e, size_t size) {
   for (size_t i = 0; i < size; i++)
-    add_edge(g, *(e[i]));
+    add_edge(g, e[i]);
 }
 
 void

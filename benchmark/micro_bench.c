@@ -296,8 +296,24 @@ int* generate_operations(micro_bench *p_mb) {
   printf("Generated Operations\n");
   fflush(stdout);
 }
-
+/**
+ * Main Function to execute the micro bench.
+ * 
+ * can receive the following arguments when the program is executed:
+ * t = test duration
+ *   s = graph size
+ *  d = graph density
+ *  a = vertex update
+ *  b = edge update
+ *  c = edge search
+ *  m = type of test
+ *  f = factor
+ *  w = file to write
+ *  g = factor to shuffle edges on generator
+ */
 int main(int argc, char **argv) {
+
+  // Default values
   int duration = 1000;
   int size = 100;
   double density = 0.75;
@@ -308,18 +324,7 @@ int main(int argc, char **argv) {
   char file_name[50];
   file_name[0] = '\0';
 
-  /*
-    t = test duration
-    s = graph size
-    d = graph density
-    a = vertex update
-    b = edge update
-    c = edge search
-    m = type of test
-    f = factor
-    w = file to write
-    g = factor to shuffle edges
-  */
+  // Set variables accordingly to options from the command line
   char opt;
   while ((opt = getopt(argc, argv, "t:s:d:a:b:c:m:f:w:g:")) != -1) {
     switch (opt) {
@@ -361,13 +366,18 @@ int main(int argc, char **argv) {
   operations[1] = operations[0] + operations[1];
   operations[2] = operations[1] + operations[2];
 
+  // Assert valid option values
   assert(operations[2] == 100);
   assert(size >= 1);
   assert(density > 0 && density <= 1);
   assert(mode == 0 || mode == 1);
+  assert(factor >= 0);
+  assert(shuffle_factor >= 0);
   
+  // New bench
   micro_bench *p_mb = (micro_bench*)malloc(sizeof(micro_bench));
   p_mb->p_g = generate_graph(size, density, shuffle_factor);
+
   printf("Generated Graph\n");
   fflush(stdout);
   
@@ -382,11 +392,11 @@ int main(int argc, char **argv) {
   p_mb->edge_searches = 0;
   p_mb->duration = duration;
 
-  
   p_mb->op_distribution[0] = operations[0];
   p_mb->op_distribution[1] = operations[1];
   p_mb->op_distribution[2] = operations[2];
 
+  // Run bench
   if (mode) {
     printf("generating operations\n");
     fflush(stdout);
@@ -428,6 +438,8 @@ int main(int argc, char **argv) {
   
   duration = (end.tv_sec * 1000 + end.tv_usec / 1000) - (start.tv_sec * 1000 + start.tv_usec / 1000);
   */
+
+  // Output to file or cout
   if (file_name[0] != '\0') {
     printf("Adding to file");
     fflush(stdout);

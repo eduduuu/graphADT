@@ -111,9 +111,27 @@ add_edge(Graph *g, Edge e) {
 }
 
 void
-add_edges(Graph *g, Edge **e, size_t size) {
-  for (size_t i = 0; i < size; i++)
-    add_edge(g, *(e[i]));
+add_edges(Graph *g, Edge *e, size_t size) {
+  g->edges_array = realloc(g->edges_array, g->num_edges + size);
+
+  int indexOldEdges = g->num_edges - 1;
+  int indexNewEdges = size -1;
+  int indexVertex = g->num_vertices - 1;
+  for (int i = g->num_edges + size - 1; i >= 0; i--) {
+    if (e[indexNewEdges].u == indexVertex) {
+      g->edges_array[i] = e[indexNewEdges].v;
+      indexNewEdges--;
+    } else {
+      if (indexNewEdges >= g->vertex_array[indexVertex]) {
+        g->edges_array[i] = g->edges_array[indexNewEdges];
+        indexNewEdges--;
+      }
+      if (indexNewEdges < g->vertex_array[indexVertex]) {
+        g->vertex_array[indexVertex] = i;
+        indexVertex--;
+      }
+    }
+  }
 }
 
 int has_edge(Graph *g, Edge e) {
@@ -216,7 +234,7 @@ Neighborhood neighbors(Graph *g, int v) {
   } else {
     n.neighbors = &g->edges_array[g->vertex_array[v]];
     if (v == g->num_vertices - 1)
-      n.blockSize = g->num_edges = g->vertex_array[v];
+      n.blockSize = g->num_edges - g->vertex_array[v];
     else
       n.blockSize = g->vertex_array[v+1] - g->vertex_array[v];
   }
