@@ -1,61 +1,118 @@
 import subprocess
+import signal
+import time
+import csv
 import os
+import itertools
 
-if os.path.exists('read_only.csv'):
-    os.remove('read_only.csv')
-if os.path.exists('mostly_reads.csv'):
-    os.remove('mostly_reads.csv')
-if os.path.exists('mostly_writes.csv'):
-    os.remove('mostly_writes.csv')
-
-size = '1000'
-duration = '100'
-density = '0.75'
+# 1. Define benchmark parameters
+sizes = ['1000', '10000', '100000']
+duration = '10000'
+densities = ['0.3', '0.6', '0.75', '1.0']
+representations = ['ADJACENCY_LIST', 'ADJACENCY_MATRIX', 'CSR']
+workloads = [ {'name': 'read_only', 'a': '0', 'b': '0', 'c': '100'},
+            {'name': 'mostly_read', 'a': '5', 'b': '15', 'c': '80'},
+            {'name': 'mostly_write', 'a': '20', 'b': '60', 'c': '20'}]
 mode = '0'
-representation = 'ADJACENCY_LIST'
+csv_filename = "benchmark_cache.csv"
 
-import subprocess
+repetitions = 2
 
-def build():
-    # 1. Remove the old build directory inside the parent directory ('../')
+def build(representation):
     subprocess.run(['rm', '-rf', 'build/'], cwd='../')
-    
-    # 2. Configure CMake inside the parent directory
+
     subprocess.run([
-        'cmake', '-B', 'build', 
-        f"-DIMPLEMENTATION={representation}", 
+        'cmake', '-B', 'build',
+        f"-DIMPLEMENTATION={representation}",
         '-DCMAKE_BUILD_TYPE=Debug'
     ], cwd='../')
-    
-    # 3. Compile the project (Fixed the missing .run method)
+
     subprocess.run(['cmake', '--build', 'build'], cwd='../')
-   
-def run():
-    density = ['0.3', '0.6', '0.75']
-    for i in range(3):
-        for _ in range(10):
-            print('Running 1\n')
-            subprocess.run(['../build/benchmark/micro_bench', '-s', size, '-t', duration, '-d', density[i], '-m', mode,
-                            '-a', '0', '-b', '0', '-c', '100', '-g', '0', '-w', f"read_only_{representation}_{size}_{density[i]}.csv"])
-                
-            if representation != 'CSR':
-                print('Running 2\n')
-                subprocess.run(['../build/benchmark/micro_bench', '-s', size, '-t', duration, '-d', density[i], '-m', mode,
-                            '-a', '10', '-b', '10', '-c', '80', '-g', '0', '-w', f"mostly_read_{representation}_{size}_{density[i]}.csv"])
-            
-                print('Running 3\n')
-                subprocess.run(['../build/benchmark/micro_bench', '-s', size, '-t', duration, '-d', density[i], '-m', mode,
-                            '-a', '40', '-b', '40', '-c', '20', '-g', '0', '-w', f"mostly_write_{representation}_{size}_{density[i]}.csv"])
-            
-        
 
-#build()
-#run()
-#representation = 'ADJACENCY_MATRIX'
-#build()
-#run()
-representation = 'CSR'
-build()
-run()
+events = ['LLC-loads', 'LLC-load-misses', 'LLC-stores', 'LLC-store-misses', 'page-faults', 'minor-faults', 'major-faults']
 
+for size, density, workload, representation in itertools.product(
+    sizes, densities, workloads, representations
+):
+    build(representation)
+    command = [
+        '../build/benchmark/micro_bench',
+        '-s', size,
+        '-t', duration,
+        '-d', density,
+        '-m', mode,
+        '-a', workload['a'],
+        '-b', workload['b'],
+        '-c', workload['c'],
+        '-g', '0',
+        '-w', f"{workload['name']}_{representation}_{size}_{density}.csv"
+    ]
+    print(f"Running: size={size}, duration={duration}, density={density}, mode={mode}, representation={representation}, workload={workload['name']}")
+    for i in range(repetitions):
+        print(i)
+        p = subprocess.Popen(
+            command,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1
+        )
+
+        tid = None
+
+
+        for line in p.stdout:
+            if line.startswith("tid"):
+                tid = line.strip().split(" ")[1]
+                break
+
+        if tid:
+            perf_cmd = [
+                'perf', 'stat',
+                '-t', str(tid),
+                '-x,',
+                '-e', ','.join(events)
+            ]
+
+            perf_proc = subprocess.Popen(
+                perf_cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+
+            time.sleep(0.05)
+
+            p.stdin.write("\n")
+            p.stdin.flush()
+
+            p.wait()
+
+            perf_proc.send_signal(signal.SIGINT)
+            _, perf_stderr = perf_proc.communicate()
+
+            perf_data = {}
+            for line in perf_stderr.splitlines():
+                parts = line.strip().split(',')
+                if len(parts) >= 3:
+                    value = parts[0].strip()
+                    event_name = parts[2].strip().split(':')[0]
+                    if event_name in events:
+                        perf_data[event_name] = value
+
+            file_exists = os.path.isfile(csv_filename)
+
+            with open(csv_filename, mode='a', newline='') as f:
+                writer = csv.writer(f)
+
+                if not file_exists:
+                    header = ['size', 'duration', 'density', 'representation', 'workload'] + events
+                    writer.writerow(header)
+
+                row = [size, duration, density, representation, workload['name']]
+                for event in events:
+                    row.append(perf_data.get(event, "0"))
+
+                writer.writerow(row)
 
