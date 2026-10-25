@@ -13,15 +13,12 @@ Graph
 *create_graph(int v) {
   Graph *g = (Graph*)malloc(sizeof(Graph));
   g->num_vertices = v;
-  g->adjacencyMatrix = (int*)calloc(v * v, sizeof(int));
+  g->adjacencyMatrix = (int*)calloc((size_t)v * v, sizeof(int));
   if (!g->adjacencyMatrix) {
     printf("error on allocation\n");
     printf("%s\n", strerror(errno));
-    exit(0);
+    exit(1);
   }
-
-  for (int i = 0; i < v * v; i++)
-    g->adjacencyMatrix[i] = 0;
 
   g->vertices = (int*)calloc(v, sizeof(int));
 
@@ -41,7 +38,7 @@ get_num_vertices(Graph *g) {
 
 void
 add_vertex(Graph *g, int v) {
-  if (has_vertex(g, v))
+  if (v < 0 || has_vertex(g, v))
     return;
 
   if (g->num_vertices > v) {
@@ -49,9 +46,9 @@ add_vertex(Graph *g, int v) {
     return;
   }
 
-  int *auxiliarMatrix = (int*)calloc((v+1) * (v+1), sizeof(int));
-  for (int i = 0; i < g->num_vertices; i++)
-    memcpy(&auxiliarMatrix[i*(v+1)], &g->adjacencyMatrix[i*(g->num_vertices)], g->num_vertices);
+  int *auxiliarMatrix = (int*)calloc((size_t)(v+1) * (v+1), sizeof(int));
+  for (size_t i = 0; i < g->num_vertices; i++)
+    memcpy(&auxiliarMatrix[i*(v+1)], &g->adjacencyMatrix[i*(g->num_vertices)], g->num_vertices*sizeof(int));
 
   free(g->adjacencyMatrix);
   g->adjacencyMatrix = auxiliarMatrix;
@@ -74,9 +71,9 @@ has_vertex(Graph *g, int v) {
 
 void
 add_edge(Graph *g, Edge e) {
-  if (e.u >= g->num_vertices || e.v >= g->num_vertices || g->vertices[e.u] || g->vertices[e.v])
+  if (e.u < 0 || e.v < 0 || e.u >= g->num_vertices || e.v >= g->num_vertices || g->vertices[e.u] || g->vertices[e.v])
     return;
-  g->adjacencyMatrix[e.u*g->num_vertices + e.v] = 1;
+  g->adjacencyMatrix[(size_t)e.u*g->num_vertices + e.v] = 1;
 }
 
 void
@@ -87,9 +84,9 @@ add_edges(Graph *g, Edge *e, size_t size) {
 
 void
 erase_edge(Graph *g, Edge e) {
-  if (e.u >= g->num_vertices || e.v >= g->num_vertices || g->vertices[e.u] || g->vertices[e.v])
+  if (e.u < 0 || e.v < 0 || e.u >= g->num_vertices || e.v >= g->num_vertices || g->vertices[e.u] || g->vertices[e.v])
     return;
-  g->adjacencyMatrix[e.u*g->num_vertices + e.v] = 0;
+  g->adjacencyMatrix[(size_t)e.u*g->num_vertices + e.v] = 0;
 }
 
 void erase_vertex(Graph *g, int v) {
@@ -97,18 +94,18 @@ void erase_vertex(Graph *g, int v) {
     return;
   g->vertices[v] = 1;
     
-  for (int i = 0; i < g->num_vertices; i++) {
-    g->adjacencyMatrix[v*g->num_vertices + i] = 0;
+  for (size_t i = 0; i < g->num_vertices; i++) {
+    g->adjacencyMatrix[(size_t)v*g->num_vertices + i] = 0;
     g->adjacencyMatrix[i*g->num_vertices + v] = 0;
   }
 }
 
 int
 has_edge(Graph *g, Edge e) {
-  if (e.u >= g->num_vertices || e.v >= g->num_vertices || g->vertices[e.u] || g->vertices[e.v])
+  if (e.u < 0 || e.v < 0 || e.u >= g->num_vertices || e.v >= g->num_vertices || g->vertices[e.u] || g->vertices[e.v])
     return 0;
 
-  return g->adjacencyMatrix[e.u*g->num_vertices + e.v];
+  return g->adjacencyMatrix[(size_t)e.u*g->num_vertices + e.v];
 }
 
 Neighborhood

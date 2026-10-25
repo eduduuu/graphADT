@@ -10,17 +10,159 @@
 #include <getopt.h>
 #include <sched.h>
 #include <math.h>
+// #include <papi.h>
+#include <linux/perf_event.h>
+#include <sys/ioctl.h>
+#include <sys/prctl.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+#include <stdint.h>
+#include <errno.h>
 #include "../src/graph.h"
 
-static inline void rand_init(unsigned short *seed)
-{
-  seed[0] = (unsigned short)rand();
-  seed[1] = (unsigned short)rand();
-  seed[2] = (unsigned short)rand();
+// #define NUM_EVENTS 7
+#define NUM_EVENTS 6
+
+/*
+const char *EVENT_NAMES[] = {
+    "PAPI_TOT_INS",                // Instructions
+    "perf::L1-DCACHE-LOADS",       // L1 Loads
+    "perf::L1-DCACHE-LOAD-MISSES", // L1 Mi
+    "L2_RQSTS:REFERENCES",         // L2 Accesses
+    "L2_RQSTS:MISS",
+    "perf::LLC-LOADS",    // L3 Accesses
+    "perf::LLC-LOAD-MISSES"
+};
+*/
+
+#define CACHE_CFG(id, op, res) \
+    ((uint64_t)(id) | ((uint64_t)(op) << 8) | ((uint64_t)(res) << 16))
+
+static long perf_open(struct perf_event_attr *a, pid_t pid, int cpu, int group, unsigned long flags) {
+    return syscall(SYS_perf_event_open, a, pid, cpu, group, flags);
 }
 
-static inline int rand_range(int n, unsigned short *seed) {
-  int v = (int)(erand48(seed) * n);
+static int open_counter(uint32_t type, uint64_t config) {
+    struct perf_event_attr a;
+    memset(&a, 0, sizeof(a));
+    a.size = sizeof(a);
+    a.type = type;
+    a.config = config;
+    a.disabled = 1;
+    a.exclude_kernel = 1;
+    a.exclude_hv = 1;
+    a.read_format = PERF_FORMAT_TOTAL_TIME_ENABLED | PERF_FORMAT_TOTAL_TIME_RUNNING;
+    return perf_open(&a, 0, -1, -1, 0);
+}
+
+static uint64_t read_counter(int fd) {
+    if (fd < 0) return 0;
+    struct { uint64_t val, enabled, running; } r = {0};
+    if (read(fd, &r, sizeof(r)) != sizeof(r) || r.running == 0) return 0;
+    return (uint64_t)((double)r.val * r.enabled / r.running);
+}
+
+typedef struct FunctionEvents {
+    const char *name;
+    long long calls;
+    long long events[NUM_EVENTS];
+    double scale;
+    int kernel_included;
+} FunctionEvents;
+
+enum { F_TOTAL, NUM_FUNCS };
+
+FunctionEvents *func_prof[NUM_FUNCS] = {NULL};
+
+static __thread int perf_fds[NUM_EVENTS] = {-1, -1, -1, -1, -1, -1};
+static __thread int perf_ready = 0;
+
+static void perf_close_all(void) {
+    for (int i = 0; i < NUM_EVENTS; i++) {
+        if (perf_fds[i] >= 0) {
+            close(perf_fds[i]);
+            perf_fds[i] = -1;
+        }
+    }
+    perf_ready = 0;
+}
+
+static int perf_init_counters(void) {
+    perf_fds[0] = open_counter(PERF_TYPE_HARDWARE, PERF_COUNT_HW_CPU_CYCLES);
+    perf_fds[1] = open_counter(PERF_TYPE_HARDWARE, PERF_COUNT_HW_INSTRUCTIONS);
+    perf_fds[2] = open_counter(PERF_TYPE_HW_CACHE,
+        CACHE_CFG(PERF_COUNT_HW_CACHE_L1D, PERF_COUNT_HW_CACHE_OP_READ, PERF_COUNT_HW_CACHE_RESULT_ACCESS));
+    perf_fds[3] = open_counter(PERF_TYPE_HW_CACHE,
+        CACHE_CFG(PERF_COUNT_HW_CACHE_L1D, PERF_COUNT_HW_CACHE_OP_READ, PERF_COUNT_HW_CACHE_RESULT_MISS));
+    perf_fds[4] = open_counter(PERF_TYPE_HARDWARE, PERF_COUNT_HW_CACHE_REFERENCES);
+    perf_fds[5] = open_counter(PERF_TYPE_HARDWARE, PERF_COUNT_HW_CACHE_MISSES);
+
+    for (int i = 0; i < NUM_EVENTS; i++) {
+        if (perf_fds[i] < 0) {
+            fprintf(stderr, "warning: counter %d failed to open: %s\n", i, strerror(errno));
+        } else {
+            ioctl(perf_fds[i], PERF_EVENT_IOC_RESET, 0);
+        }
+    }
+    perf_ready = 1;
+    return 1;
+}
+
+void profile_start(void) {
+    if (perf_ready) {
+        for (int i = 0; i < NUM_EVENTS; i++) {
+            if (perf_fds[i] >= 0) {
+                ioctl(perf_fds[i], PERF_EVENT_IOC_RESET, 0);
+            }
+        }
+        prctl(PR_TASK_PERF_EVENTS_ENABLE);
+    }
+}
+
+void profile_stop(FunctionEvents *func_prof) {
+    if (perf_ready) {
+        prctl(PR_TASK_PERF_EVENTS_DISABLE);
+        for (int i = 0; i < NUM_EVENTS; i++) {
+            if (perf_fds[i] >= 0) {
+                func_prof->events[i] += (long long)read_counter(perf_fds[i]);
+            }
+        }
+        func_prof->scale = 1.0;
+        func_prof->kernel_included = 0;
+    }
+    func_prof->calls++;
+}
+
+
+
+
+// xorshift64*: a few instructions, no libraries, no setup beyond a non-zero 64-bit state
+static inline uint64_t rng_next(uint64_t *s)
+{
+  uint64_t x = *s;
+  x ^= x >> 12;
+  x ^= x << 25;
+  x ^= x >> 27;
+  *s = x;
+  return x * 0x2545F4914F6CDD1DULL;
+}
+
+static void rng_seed(uint64_t *s)
+{
+  // splitmix64 over time and pid so the state is never zero
+  struct timespec ts;
+  clock_gettime(CLOCK_REALTIME, &ts);
+  uint64_t z = (uint64_t)ts.tv_nsec ^ ((uint64_t)ts.tv_sec << 32) ^ ((uint64_t)getpid() << 16);
+  z += 0x9E3779B97F4A7C15ULL;
+  z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ULL;
+  z = (z ^ (z >> 27)) * 0x94D049BB133111EBULL;
+  z ^= z >> 31;
+  *s = z ? z : 0x9E3779B97F4A7C15ULL;
+}
+
+// Uniform integer in [0, n) using the high 32 bits (multiply-shift, no division)
+static inline int rand_range(int n, uint64_t *seed) {
+  int v = (int)(((rng_next(seed) >> 32) * (uint64_t)n) >> 32);
   //assert (v >= 0 && v < n);
   return v;
 }
@@ -28,15 +170,15 @@ static inline int rand_range(int n, unsigned short *seed) {
 typedef struct micro_bech {
   Graph *p_g;
   int *op_array;
-  int vertex_insertions;
-  int vertex_deletions;
-  int edge_insertions;
-  int edge_deletions;
-  int edge_searches;
+  long long vertex_insertions;
+  long long vertex_deletions;
+  long long edge_insertions;
+  long long edge_deletions;
+  long long edge_searches;
   int op_count;
   int duration;
   int op_distribution[3];
-  unsigned short seed[3];
+  uint64_t seed;
 } micro_bench;
 
 static volatile int tid;
@@ -46,45 +188,122 @@ test_random(void *p_mb_) {
   tid = gettid();
   printf("tid %d\n", tid);
   fflush(stdout);
+
+  /*
+  // Register thread and create EventSet for THIS worker thread
+  PAPI_register_thread();
+
+  int ret = PAPI_create_eventset(&EventSet);
+  if (ret != PAPI_OK) {
+    fprintf(stderr, "Thread PAPI create eventset error: %s\n", PAPI_strerror(ret));
+  } else {
+    PAPI_set_multiplex(EventSet);
+    for (int i = 0; i < NUM_EVENTS; i++) {
+      ret = PAPI_add_named_event(EventSet, EVENT_NAMES[i]);
+      if (ret != PAPI_OK) {
+        fprintf(stderr, "Thread PAPI add event error: %s (%s)\n", EVENT_NAMES[i], PAPI_strerror(ret));
+      }
+    }
+  }
+  */
+
+  // Pin the worker to the CPU it is currently running on: no migrations during the run
+  {
+    int cpu = sched_getcpu();
+    if (cpu >= 0) {
+      cpu_set_t set;
+      CPU_ZERO(&set);
+      CPU_SET(cpu, &set);
+      if (sched_setaffinity(0, sizeof(set), &set) != 0)
+        perror("sched_setaffinity");
+    }
+  }
+
+  perf_ready = perf_init_counters();
+  if (!perf_ready)
+    fprintf(stderr, "warning: perf counters unavailable, hardware events will be 0\n");
+
   micro_bench *p_mb = (micro_bench*)p_mb_;
+  Graph *g = p_mb->p_g;
+  uint64_t rng = p_mb->seed;
+  const int thr_update = p_mb->op_distribution[1];
+  const int thr_search = p_mb->op_distribution[2];
+  // Vertex updates are not benchmarked, so the vertex count never changes
+  const int n = get_num_vertices(g);
   int op, u, v;
+
+  // 64-bit local counters (no int overflow, no memory traffic through p_mb in the loop)
+  long long ins = 0, del = 0, srch = 0;
+
+  // Edge updates come in pairs on the same edge, so the graph density stays constant:
+  // pick a random edge; if it is in the graph remove it, otherwise add it. The next
+  // edge update undoes that (re-adds / removes the same edge). Then a new edge is picked.
+  int pending = 0, pending_add = 0;
+  Edge pending_edge = {0, 0};
 
   while (stop == -1) {
     sched_yield();
   }
 
+  // Single outer profile: counters cover the whole measured run (no per-call overhead)
+  profile_start();
   while (stop == 0) {
-    op = rand_range(100, p_mb->seed);
-    // vertex update
-    if (op < p_mb->op_distribution[0]) {
-      u = rand_range(get_num_vertices(p_mb->p_g), p_mb->seed);
-      if (has_vertex(p_mb->p_g, u)) {
-        erase_vertex(p_mb->p_g, u);
-        p_mb->vertex_deletions++;
-      } else {
-        add_vertex(p_mb->p_g, u);
-        p_mb->vertex_insertions+=1;
-      }
+    op = rand_range(100, &rng);
+    // Vertex updates are intentionally NOT benchmarked (the implementations still
+    // provide add_vertex/erase_vertex). main() enforces vertex update share == 0,
+    // so op_distribution[0] is always 0 and only edge operations are measured.
 
     // edge update
-    } else if (op < p_mb->op_distribution[1]) {
-      u = rand_range(get_num_vertices(p_mb->p_g), p_mb->seed);
-      v = rand_range(get_num_vertices(p_mb->p_g), p_mb->seed);
-      if (!has_edge(p_mb->p_g, (Edge){u, v})) {
-        add_edge(p_mb->p_g, (Edge){u, v});
-        p_mb->edge_insertions++;
+    if (op < thr_update) {
+      if (pending) {
+        if (pending_add) {
+          add_edge(g, pending_edge);
+          ins++;
+        } else {
+          erase_edge(g, pending_edge);
+          del++;
+        }
+        pending = 0;
       } else {
-        erase_edge(p_mb->p_g, (Edge){u, v});
-        p_mb->edge_deletions++;
+        u = rand_range(n, &rng);
+        v = rand_range(n, &rng);
+        pending_edge = (Edge){u, v};
+        if (has_edge(g, pending_edge)) {
+          erase_edge(g, pending_edge);
+          del++;
+          pending_add = 1;   // next edge update re-adds it
+        } else {
+          add_edge(g, pending_edge);
+          ins++;
+          pending_add = 0;   // next edge update removes it again
+        }
+        pending = 1;
       }
     // edge search
-    } else if (op < p_mb->op_distribution[2]) {
-      u = rand_range(get_num_vertices(p_mb->p_g), p_mb->seed);
-      v = rand_range(get_num_vertices(p_mb->p_g), p_mb->seed);
-      has_edge(p_mb->p_g, (Edge){u, v});
-      p_mb->edge_searches++;
+    } else if (op < thr_search) {
+      u = rand_range(n, &rng);
+      v = rand_range(n, &rng);
+      has_edge(g, (Edge){u, v});
+      srch++;
     }
   }
+  profile_stop(func_prof[F_TOTAL]);
+
+  p_mb->edge_insertions += ins;
+  p_mb->edge_deletions += del;
+  p_mb->edge_searches += srch;
+  p_mb->seed = rng;
+
+  /*
+  if (EventSet != PAPI_NULL) {
+    PAPI_cleanup_eventset(EventSet);
+    PAPI_destroy_eventset(&EventSet);
+    EventSet = PAPI_NULL;
+  }
+  PAPI_unregister_thread();
+  */
+  perf_close_all();
+  return NULL;
 }
 
 void run_test(micro_bench *p_mb, void*(test_func)(void*)) {
@@ -96,6 +315,33 @@ void run_test(micro_bench *p_mb, void*(test_func)(void*)) {
 
   timeout.tv_sec = p_mb->duration / 1000;
   timeout.tv_nsec = (p_mb->duration % 1000) * 1000000;
+
+  /*
+  if (!PAPI_is_initialized()) {
+    int ret = PAPI_library_init(PAPI_VER_CURRENT);
+    if (ret != PAPI_VER_CURRENT) {
+      fprintf(stderr, "PAPI library init error!\n");
+      exit(1);
+    }
+    ret = PAPI_thread_init(pthread_self);
+    if (ret != PAPI_OK) {
+      fprintf(stderr, "PAPI thread init error: %s\n", PAPI_strerror(ret));
+    }
+    ret = PAPI_multiplex_init();
+    if (ret != PAPI_OK) {
+      fprintf(stderr, "PAPI multiplex init error: %s\n", PAPI_strerror(ret));
+    }
+  }
+  */
+
+  for (int i = 0; i < NUM_FUNCS; i++) {
+    if (func_prof[i]) {
+      free(func_prof[i]);
+    }
+    func_prof[i] = (FunctionEvents*)calloc(1, sizeof(FunctionEvents));
+  }
+  func_prof[F_TOTAL]->name = "total";
+
 
   pthread_t *thread = (pthread_t*)malloc(sizeof(pthread_t));
   pthread_attr_t attr;
@@ -118,7 +364,7 @@ void run_test(micro_bench *p_mb, void*(test_func)(void*)) {
   p_mb->duration = (end.tv_sec * 1000 + end.tv_usec / 1000) - (start.tv_sec * 1000 + start.tv_usec / 1000);
 }
 
-int choose_vertex(Graph *g, unsigned short seed[3]) {
+int choose_vertex(Graph *g, uint64_t *seed) {
   int u = rand_range(get_num_vertices(g), seed);
   int v;
   for (v = u; v < get_num_vertices(g); v++)
@@ -132,7 +378,7 @@ int choose_vertex(Graph *g, unsigned short seed[3]) {
   return v;
 }
 
-void choose_edge(Graph *g, unsigned short seed[3], int has, Edge* edge) {
+void choose_edge(Graph *g, uint64_t *seed, int has, Edge* edge) {
   int u = rand_range(get_num_vertices(g), seed);
   int v = rand_range(get_num_vertices(g), seed);
 
@@ -202,6 +448,7 @@ test(void *p_mb_) {
     printf("Operations ended before the timer.");
     fflush(stdout);
   }
+  return NULL;
 }
 
 int* generate_operations(micro_bench *p_mb) {
@@ -239,13 +486,13 @@ int* generate_operations(micro_bench *p_mb) {
       break;
     //printf("%d %d %d\n", vertex_update, edge_update, edge_searches);
     //fflush(stdout);
-    op = rand_range(100, p_mb->seed);
+    op = rand_range(100, &p_mb->seed);
     // vertex update
     if (op < p_mb->op_distribution[0]) {
       if (!vertex_update)
         continue;
 
-      u = rand_range(get_num_vertices(g), p_mb->seed);
+      u = rand_range(get_num_vertices(g), &p_mb->seed);
       if (!has_vertex(g, u)) {
         add_vertex(g, u);
         p_mb->op_array[index_op] = 0;
@@ -264,7 +511,7 @@ int* generate_operations(micro_bench *p_mb) {
       if (!edge_update)
         continue;
 
-      choose_edge(g, p_mb->seed, insert_edge, &edge);
+      choose_edge(g, &p_mb->seed, insert_edge, &edge);
       if (insert_edge) {
         add_edge(g, edge);
         insert_edge = 0;
@@ -287,7 +534,7 @@ int* generate_operations(micro_bench *p_mb) {
       if (!edge_searches)
         continue;
 
-      choose_edge(g, p_mb->seed, 1, &edge);
+      choose_edge(g, &p_mb->seed, 1, &edge);
 
       p_mb->op_array[index_op] = 4;
       p_mb->op_array[index_op+1] = edge.u;
@@ -308,6 +555,7 @@ int* generate_operations(micro_bench *p_mb) {
 
   printf("Generated Operations\n");
   fflush(stdout);
+  return p_mb->op_array;
 }
 /**
  * Main Function to execute the micro bench.
@@ -326,20 +574,23 @@ int* generate_operations(micro_bench *p_mb) {
  */
 int main(int argc, char **argv) {
 
-  // Default values
+  // Default values: 0% vertex (disabled), 20% edge updates, 80% edge searches
   int duration = 1000;
   int size = 100;
   double density = 0.75;
-  int operations[] = {25, 25, 50};
+  int operations[] = {0, 20, 80};
   int mode = 0;
   int factor = 1;
   double shuffle_factor = 0;
-  char file_name[50];
-  file_name[0] = '\0';
+  char file_name[50] = "micro_benchmark.csv";
+  char implementation[30];
+  implementation[0] = '\0';
+  char workload[30];
+  workload[0] = '\0';
 
   // Set variables accordingly to options from the command line
   char opt;
-  while ((opt = getopt(argc, argv, "t:s:d:a:b:c:m:f:w:g:")) != -1) {
+  while ((opt = getopt(argc, argv, "t:s:d:a:b:c:m:f:w:g:i:k:")) != -1) {
     switch (opt) {
       case 't':
         printf("time: %s\n", optarg);
@@ -354,7 +605,8 @@ int main(int argc, char **argv) {
         printf("density: %s\n", optarg);
         break;
       case 'a':
-        operations[0] = atoi(optarg);
+        // Vertex operations are removed from benchmark; force to 0
+        operations[0] = 0;
         break;
       case 'b':
         operations[1] = atoi(optarg);
@@ -369,13 +621,21 @@ int main(int argc, char **argv) {
         factor = atoi(optarg);
         break;
       case 'w':
-        strcpy(file_name, optarg);
+        snprintf(file_name, sizeof(file_name), "%s", optarg);
         break;
       case 'g':
         shuffle_factor = atoi(optarg);
         break;
+      case 'i':
+        snprintf(implementation, sizeof(implementation), "%s", optarg);
+        break;
+      case 'k':
+        snprintf(workload, sizeof(workload), "%s", optarg);
+        break;
     }
   }
+  operations[0] = 0;
+  int pct[3] = {operations[0], operations[1], operations[2]};
   operations[1] = operations[0] + operations[1];
   operations[2] = operations[1] + operations[2];
 
@@ -388,7 +648,7 @@ int main(int argc, char **argv) {
   assert(shuffle_factor >= 0);
 
   // New bench
-  micro_bench *p_mb = (micro_bench*)malloc(sizeof(micro_bench));
+  micro_bench *p_mb = (micro_bench*)calloc(1, sizeof(micro_bench));
   p_mb->p_g = generate_graph(size, density, shuffle_factor);
 
   printf("Generated Graph\n");
@@ -396,7 +656,7 @@ int main(int argc, char **argv) {
 
   //p_mb->p_g = create_graph(size);
   srand((int)time(NULL));
-  rand_init(p_mb->seed);
+  rng_seed(&p_mb->seed);
 
   p_mb->vertex_insertions = 0;
   p_mb->vertex_deletions = 0;
@@ -452,6 +712,9 @@ int main(int argc, char **argv) {
   duration = (end.tv_sec * 1000 + end.tv_usec / 1000) - (start.tv_sec * 1000 + start.tv_usec / 1000);
   */
 
+  // Use the measured duration (ms) instead of the requested one
+  duration = p_mb->duration;
+
   // Output to file or cout
   if (file_name[0] != '\0') {
     printf("Adding to file");
@@ -459,26 +722,57 @@ int main(int argc, char **argv) {
     int insert_header = access(file_name, F_OK);
     FILE *fptr = fopen(file_name, "a");
 
-    if (insert_header) {
-      printf("Inserting Header");
-      fflush(stdout);
-      fprintf(fptr, "size,duration,density,v_updates,e_updates,e_searchs,mode,factor,v_insert,v_del,e_insert,e_del,e_searches\n");
+    if (!fptr) {
+      perror("fopen results csv");
+    } else {
+      if (insert_header) {
+        printf("Inserting Header");
+        fflush(stdout);
+        fprintf(fptr, "size,duration,density,implementation,workload,v_updates,e_updates,e_searches,mode,factor,v_insert,v_del,e_insert,e_del,e_searches_done\n");
+      }
+
+      // v_updates/e_updates/e_searches are the percentages given on the command line
+      fprintf(fptr, "%d,%d,%f,%s,%s,%d,%d,%d,%d,%d,", size, duration, density, implementation, workload, pct[0], pct[1], pct[2], mode, factor);
+      fprintf(fptr, "%lld,%lld,%lld,%lld,%lld\n", p_mb->vertex_insertions, p_mb->vertex_deletions,
+        p_mb->edge_insertions, p_mb->edge_deletions, p_mb->edge_searches);
+
+      fclose(fptr);
     }
-
-    fprintf(fptr, "%d,%d,%f,%d,%d,%d,%d,%d,", size, duration, density, operations[0], operations[1], operations[2], mode, factor);
-    fprintf(fptr, "%d,%d,%d,%d,%d\n", p_mb->vertex_insertions, p_mb->vertex_deletions,
-      p_mb->edge_insertions, p_mb->edge_deletions, p_mb->edge_searches);
-
-    fclose(fptr);
   } else {
     printf("Duration           : %d (ms)\n", duration);
-    printf("# v insert txs     : %d (%f / s)\n", p_mb->vertex_insertions, p_mb->vertex_insertions * 1000.0 / duration);
-    printf("# v del txs        : %d (%f / s)\n", p_mb->vertex_deletions, p_mb->vertex_deletions * 1000.0 / duration);
-    printf("# e inser txs      : %d (%f / s)\n", p_mb->edge_insertions, p_mb->edge_insertions * 1000.0 / duration);
-    printf("# e deltxs         : %d (%f / s)\n", p_mb->edge_deletions, p_mb->edge_deletions * 1000.0 / duration);
-    printf("# e searchtxs      : %d (%f / s)\n", p_mb->edge_searches, p_mb->edge_searches * 1000.0 / duration);
+    printf("# v insert txs     : %lld (%f / s)\n", p_mb->vertex_insertions, p_mb->vertex_insertions * 1000.0 / duration);
+    printf("# v del txs        : %lld (%f / s)\n", p_mb->vertex_deletions, p_mb->vertex_deletions * 1000.0 / duration);
+    printf("# e inser txs      : %lld (%f / s)\n", p_mb->edge_insertions, p_mb->edge_insertions * 1000.0 / duration);
+    printf("# e deltxs         : %lld (%f / s)\n", p_mb->edge_deletions, p_mb->edge_deletions * 1000.0 / duration);
+    printf("# e searchtxs      : %lld (%f / s)\n", p_mb->edge_searches, p_mb->edge_searches * 1000.0 / duration);
     fflush(stdout);
   }
+
+  const char *prof_file = "benchmark_cache_per_function_total.csv";
+  int insert_prof_header = access(prof_file, F_OK);
+  FILE *fptr = fopen(prof_file, "a");
+  if (!fptr) {
+    perror("fopen profile csv");
+  } else if (insert_prof_header) {
+    fprintf(fptr, "size,duration,density,implementation,workload,function,calls,cycles,instructions,l1_dcache_loads,l1_dcache_load_misses,llc_loads,llc_load_misses,perf_scale,kernel_included\n");
+  }
+
+  for (int i = 0; i < NUM_FUNCS; i++) {
+    if (fptr) {
+      fprintf(fptr, "%d,%d,%f,%s,%s,%s,%lld", size, duration, density, implementation, workload, func_prof[i]->name, func_prof[i]->calls);
+      for (int j = 0; j < NUM_EVENTS; j++) {
+        fprintf(fptr, ",%lld", func_prof[i]->events[j]);
+      }
+      fprintf(fptr, ",%.4f,%d\n", func_prof[i]->scale, func_prof[i]->kernel_included);
+    }
+    free(func_prof[i]);
+    func_prof[i] = NULL;
+  }
+
+
+  if (fptr) fclose(fptr);
+
+
 
   destruct_graph(p_mb->p_g);
   free(p_mb->op_array);
@@ -487,4 +781,3 @@ int main(int argc, char **argv) {
 
   return 0;
 }
-

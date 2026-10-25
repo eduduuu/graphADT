@@ -2,8 +2,8 @@
 #include <time.h>
 #include <sys/time.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <math.h>
-#include "graphGenerator.h"
 
 static inline void rand_init(unsigned short *seed)
 {
@@ -62,103 +62,79 @@ generate_graph2(int v, double density) {
 		}
 	}
 
+	free(degrees);
+	free(included);
+
 	return p_g;
 }
 
 Graph*
 generate_graph(int v, double density, double shuffle_factor) {
-	unsigned short seed[3];
-	srand((int)time(NULL));
-  	rand_init(seed);
+	(void)shuffle_factor; // random rewiring is not implemented (kept for API compatibility)
 
-	printf("começou\n");
-	fflush(stdout);
 	Graph *p_g = create_graph(v);
-	printf("criou\n");
-	fflush(stdout);
-	int target_degree = ceil((v-1) * density);
-	if (target_degree % 2)
-		if (target_degree == v-1)
-			target_degree--;
-		else
-			target_degree++;
 
-	Edge *edges = (Edge*)malloc(sizeof(Edge) * target_degree * v);
-	int edge_index = 0;
+	// Directed ring lattice: every vertex gets `target_degree` out-neighbours
+	// i+1, ..., i+target_degree (mod v). Offsets are distinct and never 0, so
+	// there are no self-loops or duplicates.
+	int target_degree = (int)ceil((v-1) * density);
+	if (target_degree > v-1)
+		target_degree = v-1;
+	if (target_degree <= 0)
+		return p_g;
 
+	size_t total = (size_t)target_degree * v;
+	Edge *edges = (Edge*)malloc(sizeof(Edge) * total);
+	if (!edges) {
+		perror("generate_graph: malloc");
+		exit(1);
+	}
+
+	size_t edge_index = 0;
 	for (int i = 0; i < v; i++) {
-		for (int j = 0; j < target_degree/2; j++) {
+		for (int j = 0; j < target_degree; j++) {
 			edges[edge_index] = (Edge){ i, (i + j + 1) % v };
 			edge_index += 1;
 		}
 	}
-	printf("fez o array\n");
-	fflush(stdout);
-	printf("%d\n", edge_index);
-	fflush(stdout);
+
 	add_edges(p_g, edges, edge_index);
-
-	/*
-	for (int i = 0; i < edge_index; i += 2) {
-		if (i % 100000) {
-			printf("%d\n", i);
-			fflush(stdout);
-		}
-		add_edge(p_g, (Edge){edges[i], edges[i+1]});
-		add_edge(p_g, (Edge){edges[i+1], edges[i]});
-	}
-	*/
-	printf("preencheu\n");
-	fflush(stdout);
-
-	int random_edges = ceil(target_degree * v * shuffle_factor);
-	
-	/*
-	for (int i = 0; i < random_edges; i++) {
-		int u = rand_range(edge_index / 2, seed);
-		int v = rand_range(edge_index / 2, seed);
-		
-		if (!has_edge(p_g, (Edge){edges[u*2], edges[v*2+1]}) && !has_edge(p_g, (Edge){edges[v*2], edges[u*2+1]})
-		&& edges[u*2] != edges[v*2+1] && edges[v*2] != edges[u*2+1]) {
-			erase_edge(p_g, (Edge){edges[u*2], edges[u*2+1]});
-			erase_edge(p_g, (Edge){edges[u*2+1], edges[u*2]});
-			
-			erase_edge(p_g, (Edge){edges[v*2], edges[v*2+1]});
-			erase_edge(p_g, (Edge){edges[v*2+1], edges[v*2]});
-			
-			add_edge(p_g, (Edge){edges[u*2], edges[v*2+1]});
-			add_edge(p_g, (Edge){edges[v*2+1], edges[u*2]});
-			
-			add_edge(p_g, (Edge){edges[v*2], edges[u*2+1]});
-			add_edge(p_g, (Edge){edges[u*2+1], edges[v*2]});
-			
-			int w = edges[u*2];
-			edges[u*2] = edges[v*2];
-			edges[v*2] = w;
-		}
-	}
-	*/
-	
 	free(edges);
-	
+
 	return p_g;
 }
 
 Graph
 *copy_graph(Graph *g) {
-	Graph *new_graph = create_graph(get_num_vertices(g));
+	int n = get_num_vertices(g);
+	Graph *new_graph = create_graph(n);
 
-	for(int i = 0; i < get_num_vertices(g); i++) {
-		Neighborhood n = neighbors(g, i);
+	size_t capacity = 1024, count = 0;
+	Edge *edges = (Edge*)malloc(sizeof(Edge) * capacity);
 
-		while (n.neighbors) {
-			for (int j = 0; j < n.blockSize; j++) {
-				add_edge(new_graph, (Edge){i, n.neighbors[j]});
-				add_edge(new_graph, (Edge){n.neighbors[j], i});
+	for (int i = 0; i < n; i++) {
+		Neighborhood nb = neighbors(g, i);
+
+		while (nb.neighbors) {
+			for (size_t j = 0; j < nb.blockSize; j++) {
+				if (count == capacity) {
+					capacity *= 2;
+					edges = (Edge*)realloc(edges, sizeof(Edge) * capacity);
+				}
+				edges[count++] = (Edge){i, nb.neighbors[j]};
 			}
-			n = next_neighbors(g, n);
+			nb = next_neighbors(g, nb);
 		}
 	}
+
+	// Edges are copied exactly as they are (the graph is directed)
+	add_edges(new_graph, edges, count);
+	free(edges);
+
+	// Preserve removed vertices
+	for (int i = 0; i < n; i++)
+		if (!has_vertex(g, i))
+			erase_vertex(new_graph, i);
 
 	return new_graph;
 }

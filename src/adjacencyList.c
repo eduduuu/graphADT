@@ -57,11 +57,12 @@ get_num_vertices(Graph *g) {
 
 void
 add_vertex(Graph *g, int v) {
-  if (has_vertex(g, v))
+  if (v < 0 || has_vertex(g, v))
     return;
 
   if (g->num_vertices <= v) {
-    g->adjacencyList = (Vertex**)realloc(g->adjacencyList, (v+1) * sizeof(Vertex));
+    g->adjacencyList = (Vertex**)realloc(g->adjacencyList, (v+1) * sizeof(Vertex*));
+    g->vertices = (int*)realloc(g->vertices, (v+1) * sizeof(int));
     int num_vertices = g->num_vertices;
     for (int i = num_vertices; i <= v; i++) {
       g->vertices[i] = 1;
@@ -102,7 +103,7 @@ void add_edges(Graph *g, Edge *e, size_t size) {
 
 void
 erase_edge(Graph *g, Edge e) {
-  if (!has_vertex(g, e.u) || !has_edge(g, e))
+  if (!has_vertex(g, e.u))
     return;
 
   Vertex *current = g->adjacencyList[e.u];
@@ -112,25 +113,8 @@ erase_edge(Graph *g, Edge e) {
       if (previous)
         previous->n = current->n;
       else
-        g->adjacencyList[e.u] = current->n; 
-      
-      free(current);
-      return;
-    }
+        g->adjacencyList[e.u] = current->n;
 
-    previous = current;
-    current = current->n;
-  }
-
-  current = g->adjacencyList[e.v];
-  previous = NULL;
-  while (current) {
-    if (current->v == e.u) {
-      if (previous)
-        previous->n = current->n;
-      else
-        g->adjacencyList[e.v] = current->n; 
-      
       free(current);
       return;
     }
@@ -146,30 +130,27 @@ erase_vertex(Graph *g, int v) {
       return;
 
   g->vertices[v] = 1;
-  
-  for (int i = 0; i < g->num_vertices; i++)
-    if (i != v)
-      erase_edge(g, (Edge){i, v});
 
-  Vertex *u;
-  Vertex *next;
-  u = g->adjacencyList[v];
-  if (!u)
-    return;
-  next = u->n;
+  // free outgoing edges
+  Vertex *u = g->adjacencyList[v];
   while (u) {
+    Vertex *next = u->n;
     free(u);
     u = next;
-    if (next)
-      next = next->n;
   }
-
   g->adjacencyList[v] = NULL;
+
+  // remove incoming edges (the graph is directed, so every list must be checked)
+  for (int i = 0; i < g->num_vertices; i++) {
+    if (g->vertices[i])
+      continue;
+    erase_edge(g, (Edge){i, v});
+  }
 }
 
 int
 has_edge(Graph *g, Edge e) {
-  if (g->num_vertices < e.u)
+  if (!has_vertex(g, e.u) || !has_vertex(g, e.v))
     return 0;
 
   Vertex *v = g->adjacencyList[e.u];
@@ -184,15 +165,20 @@ has_edge(Graph *g, Edge e) {
 
 Neighborhood
 neighbors(Graph *g, int v) {
-  if (!has_vertex(g, v))
+  if (!has_vertex(g, v) || !g->adjacencyList[v])
     return (Neighborhood){NULL, 0};
+  // Vertex.v is the first member, so a pointer to it also identifies the node
   Neighborhood n = {(const int*)&(g->adjacencyList[v]->v), 1};
   return n;
 }
 
 Neighborhood next_neighbors(Graph *g, Neighborhood n) {
-  Neighborhood n2 = {(const int*)&(((Vertex*)n.neighbors)->n->v), 1};
-  return n2;
+  if (!n.neighbors)
+    return (Neighborhood){NULL, 0};
+  Vertex *next = ((Vertex*)n.neighbors)->n;
+  if (!next)
+    return (Neighborhood){NULL, 0};
+  return (Neighborhood){(const int*)&(next->v), 1};
 }
 
 void destruct_neighborhood(Neighborhood n) {

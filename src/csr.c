@@ -45,7 +45,7 @@ get_num_vertices(Graph *g) {
 
 void
 add_vertex(Graph *g, int v) {
-  if (has_vertex(g, v))
+  if (v < 0 || has_vertex(g, v))
     return;
 
   if (g->num_vertices > v) {
@@ -65,7 +65,7 @@ add_vertex(Graph *g, int v) {
 
 int
 has_vertex(Graph *g, int v) {
-  if (v >= g->num_vertices)
+  if (v < 0 || v >= g->num_vertices)
     return 0;
   return !g->vertices[v];
 }
@@ -110,28 +110,66 @@ add_edge(Graph *g, Edge e) {
     g->vertex_array[i]++;
 }
 
+// Bulk insert. Edges may come in any order. Edges with a missing endpoint or that
+// already exist in the graph are skipped; duplicates inside the batch are the caller's responsibility.
 void
 add_edges(Graph *g, Edge *e, size_t size) {
-  g->edges_array = realloc(g->edges_array, g->num_edges + size);
+  int n = g->num_vertices;
+  if (size == 0 || n == 0)
+    return;
 
-  int indexOldEdges = g->num_edges - 1;
-  int indexNewEdges = size -1;
-  int indexVertex = g->num_vertices - 1;
-  for (int i = g->num_edges + size - 1; i >= 0; i--) {
-    if (e[indexNewEdges].u == indexVertex) {
-      g->edges_array[i] = e[indexNewEdges].v;
-      indexNewEdges--;
-    } else {
-      if (indexNewEdges >= g->vertex_array[indexVertex]) {
-        g->edges_array[i] = g->edges_array[indexNewEdges];
-        indexNewEdges--;
-      }
-      if (indexNewEdges < g->vertex_array[indexVertex]) {
-        g->vertex_array[indexVertex] = i;
-        indexVertex--;
-      }
+  size_t *added = (size_t*)calloc(n, sizeof(size_t));    // new edges per vertex
+  size_t *write = (size_t*)malloc(n * sizeof(size_t));   // write cursor per vertex
+  unsigned char *accepted = (unsigned char*)calloc(size, 1);
+  int *new_array = NULL;
+  size_t total_new = 0;
+
+  if (!added || !write || !accepted)
+    goto done;
+
+  for (size_t i = 0; i < size; i++) {
+    if (has_vertex(g, e[i].u) && has_vertex(g, e[i].v) && !has_edge(g, e[i])) {
+      accepted[i] = 1;
+      added[e[i].u]++;
+      total_new++;
     }
   }
+
+  if (total_new == 0)
+    goto done;
+
+  new_array = (int*)malloc(sizeof(int) * ((size_t)g->num_edges + total_new));
+  if (!new_array)
+    goto done;
+
+  // Copy the old edges to their new positions and compute the new vertex starts
+  size_t pos = 0;
+  for (int u = 0; u < n; u++) {
+    size_t old_begin = g->vertex_array[u];
+    size_t old_end = (u == n-1) ? (size_t)g->num_edges : (size_t)g->vertex_array[u+1];
+    size_t old_count = old_end - old_begin;
+
+    if (old_count)
+      memcpy(&new_array[pos], &g->edges_array[old_begin], old_count * sizeof(int));
+
+    g->vertex_array[u] = (int)pos;
+    write[u] = pos + old_count;
+    pos += old_count + added[u];
+  }
+
+  // Place the new edges after the old ones of their source vertex
+  for (size_t i = 0; i < size; i++)
+    if (accepted[i])
+      new_array[write[e[i].u]++] = e[i].v;
+
+  free(g->edges_array);
+  g->edges_array = new_array;
+  g->num_edges += (int)total_new;
+
+done:
+  free(added);
+  free(write);
+  free(accepted);
 }
 
 int has_edge(Graph *g, Edge e) {
@@ -151,6 +189,19 @@ int has_edge(Graph *g, Edge e) {
   return 0;
 }
 
+static void
+shrink_edges(Graph *g) {
+  // g->num_edges is already the new size
+  if (g->num_edges == 0) {
+    free(g->edges_array);
+    g->edges_array = NULL;
+  } else {
+    int *p = (int*)realloc(g->edges_array, sizeof(int) * g->num_edges);
+    if (p)
+      g->edges_array = p;
+  }
+}
+
 void
 erase_edge(Graph *g, Edge e) {
   if (!has_vertex(g, e.u) || !has_vertex(g, e.v))
@@ -168,22 +219,14 @@ erase_edge(Graph *g, Edge e) {
       break;
 
   if (edge_index != next_vertex_edges) {
-    if (g->num_edges == 1) {
-      free(g->edges_array);
-    } else if (edge_index != g->num_edges - 1) {
-      int *new_edges_array = (int*)malloc(sizeof(int) * (g->num_edges - 1));
-      memcpy(new_edges_array, g->edges_array, sizeof(int) * edge_index);
-      memcpy(&new_edges_array[edge_index], &g->edges_array[edge_index+1], sizeof(int) * (g->num_edges - edge_index-1));
-      free(g->edges_array);
-      g->edges_array = new_edges_array;
-    } else {
-      g->edges_array = (int*)realloc(g->edges_array, sizeof(int) * (g->num_edges-1));
-    }
-    
+    memmove(&g->edges_array[edge_index], &g->edges_array[edge_index+1],
+            sizeof(int) * (g->num_edges - edge_index - 1));
+
     for (int i = e.u+1; i < g->num_vertices; i++)
       g->vertex_array[i]--;
-    
+
     g->num_edges--;
+    shrink_edges(g);
   }
 }
 
@@ -196,47 +239,37 @@ erase_vertex(Graph *g, int v) {
   if (g->num_edges == 0)
     return;
 
-  int edge_index = 0, begin_index = 0, end_index;
+  // Compact the edge array in place: drop v's out-edges and every edge pointing to v.
+  int write = 0, old_begin = 0;
   for (int i = 0; i < g->num_vertices; i++) {
+    int old_end = (i == g->num_vertices-1) ? g->num_edges : g->vertex_array[i+1];
+    int new_begin = write;
+
     if (i != v) {
-      if (i == g->num_vertices-1)
-        end_index = g->num_edges;
-      else
-        end_index = g->vertex_array[i+1];
-      for (int j = begin_index; j < end_index; j++) {
-        if (g->edges_array[j] != v) {
-          g->edges_array[edge_index] = g->edges_array[j];
-          edge_index++;
-        }
+      for (int j = old_begin; j < old_end; j++) {
+        if (g->edges_array[j] != v)
+          g->edges_array[write++] = g->edges_array[j];
       }
     }
-    
-    if (i != g->num_vertices-1) {
-      begin_index = g->vertex_array[i+1];
-      g->vertex_array[i+1] = edge_index;
-    }
+
+    g->vertex_array[i] = new_begin;
+    old_begin = old_end;
   }
 
-  if (edge_index != 0 && end_index != g->num_edges) {
-    g->edges_array = (int*)realloc(g->edges_array, sizeof(int) * edge_index);
-  } else if (edge_index == 0) {
-    free(g->edges_array);
-    g->edges_array = NULL;
-  }
-  g->num_edges = edge_index;
+  g->num_edges = write;
+  shrink_edges(g);
 }
 
 Neighborhood neighbors(Graph *g, int v) {
-  Neighborhood n;
-  if (!has_vertex(g, v)) {
-    n.neighbors = NULL;
-    n.blockSize = 0;
-  } else {
-    n.neighbors = &g->edges_array[g->vertex_array[v]];
-    if (v == g->num_vertices - 1)
-      n.blockSize = g->num_edges - g->vertex_array[v];
-    else
-      n.blockSize = g->vertex_array[v+1] - g->vertex_array[v];
+  Neighborhood n = {NULL, 0};
+  if (!has_vertex(g, v))
+    return n;
+
+  size_t begin = g->vertex_array[v];
+  size_t end = (v == g->num_vertices - 1) ? (size_t)g->num_edges : (size_t)g->vertex_array[v+1];
+  if (end > begin) {
+    n.neighbors = &g->edges_array[begin];
+    n.blockSize = end - begin;
   }
 
   return n;

@@ -1,0 +1,58 @@
+# Build artifacts
+build/
+CMakeFiles/
+CMakeCache.txt
+Makefile
+cmake_install.cmake
+CTestTestfile.cmake
+DartConfiguration.tcl
+*.o
+*.a
+*.so
+*.dylib
+vgcore.*
+cachegrind.out.*
+perf.data*
+
+# Python & Virtualenv
+__pycache__/
+*.pyc
+*.pyo
+.ipynb_checkpoints/
+ic/
+
+# Editor & Swap files
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Backups & Scratch
+*.bkp*
+bkp/
+others/
+papi_test/
+size_evaluation.c/
+IC_ATUAL/
+out.txt
+stats.txt
+read_only
+temp_*.png
+notes.txt
+=4.2.0
+*.pdf
+resume_*
+
+# Generated outputs & benchmark data
+benchmark/results*/
+benchmark/cache/
+benchmark/amat_vs_benchmark*
+benchmark/calculate_amat_vs_benchmark.py
+benchmark/analisys_cache.ipynb
+benchmark/random_number*
+benchmark/signals.h
+csr_reference/
+datasets/
+*.csv
+*.xlsx
+*.html
