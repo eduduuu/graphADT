@@ -134,9 +134,6 @@ void profile_stop(FunctionEvents *func_prof) {
 }
 
 
-
-
-// xorshift64*: a few instructions, no libraries, no setup beyond a non-zero 64-bit state
 static inline uint64_t rng_next(uint64_t *s)
 {
   uint64_t x = *s;
@@ -149,7 +146,6 @@ static inline uint64_t rng_next(uint64_t *s)
 
 static void rng_seed(uint64_t *s)
 {
-  // splitmix64 over time and pid so the state is never zero
   struct timespec ts;
   clock_gettime(CLOCK_REALTIME, &ts);
   uint64_t z = (uint64_t)ts.tv_nsec ^ ((uint64_t)ts.tv_sec << 32) ^ ((uint64_t)getpid() << 16);
@@ -160,7 +156,6 @@ static void rng_seed(uint64_t *s)
   *s = z ? z : 0x9E3779B97F4A7C15ULL;
 }
 
-// Uniform integer in [0, n) using the high 32 bits (multiply-shift, no division)
 static inline int rand_range(int n, uint64_t *seed) {
   int v = (int)(((rng_next(seed) >> 32) * (uint64_t)n) >> 32);
   //assert (v >= 0 && v < n);
@@ -228,16 +223,11 @@ test_random(void *p_mb_) {
   uint64_t rng = p_mb->seed;
   const int thr_update = p_mb->op_distribution[1];
   const int thr_search = p_mb->op_distribution[2];
-  // Vertex updates are not benchmarked, so the vertex count never changes
   const int n = get_num_vertices(g);
   int op, u, v;
 
-  // 64-bit local counters (no int overflow, no memory traffic through p_mb in the loop)
   long long ins = 0, del = 0, srch = 0;
 
-  // Edge updates come in pairs on the same edge, so the graph density stays constant:
-  // pick a random edge; if it is in the graph remove it, otherwise add it. The next
-  // edge update undoes that (re-adds / removes the same edge). Then a new edge is picked.
   int pending = 0, pending_add = 0;
   Edge pending_edge = {0, 0};
 
@@ -245,13 +235,9 @@ test_random(void *p_mb_) {
     sched_yield();
   }
 
-  // Single outer profile: counters cover the whole measured run (no per-call overhead)
   profile_start();
   while (stop == 0) {
     op = rand_range(100, &rng);
-    // Vertex updates are intentionally NOT benchmarked (the implementations still
-    // provide add_vertex/erase_vertex). main() enforces vertex update share == 0,
-    // so op_distribution[0] is always 0 and only edge operations are measured.
 
     // edge update
     if (op < thr_update) {
@@ -574,7 +560,6 @@ int* generate_operations(micro_bench *p_mb) {
  */
 int main(int argc, char **argv) {
 
-  // Default values: 0% vertex (disabled), 20% edge updates, 80% edge searches
   int duration = 1000;
   int size = 100;
   double density = 0.75;
@@ -588,7 +573,6 @@ int main(int argc, char **argv) {
   char workload[30];
   workload[0] = '\0';
 
-  // Set variables accordingly to options from the command line
   char opt;
   while ((opt = getopt(argc, argv, "t:s:d:a:b:c:m:f:w:g:i:k:")) != -1) {
     switch (opt) {
@@ -712,10 +696,8 @@ int main(int argc, char **argv) {
   duration = (end.tv_sec * 1000 + end.tv_usec / 1000) - (start.tv_sec * 1000 + start.tv_usec / 1000);
   */
 
-  // Use the measured duration (ms) instead of the requested one
   duration = p_mb->duration;
 
-  // Output to file or cout
   if (file_name[0] != '\0') {
     printf("Adding to file");
     fflush(stdout);

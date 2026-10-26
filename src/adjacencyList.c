@@ -131,7 +131,6 @@ erase_vertex(Graph *g, int v) {
 
   g->vertices[v] = 1;
 
-  // free outgoing edges
   Vertex *u = g->adjacencyList[v];
   while (u) {
     Vertex *next = u->n;
@@ -140,7 +139,6 @@ erase_vertex(Graph *g, int v) {
   }
   g->adjacencyList[v] = NULL;
 
-  // remove incoming edges (the graph is directed, so every list must be checked)
   for (int i = 0; i < g->num_vertices; i++) {
     if (g->vertices[i])
       continue;
@@ -167,7 +165,6 @@ Neighborhood
 neighbors(Graph *g, int v) {
   if (!has_vertex(g, v) || !g->adjacencyList[v])
     return (Neighborhood){NULL, 0};
-  // Vertex.v is the first member, so a pointer to it also identifies the node
   Neighborhood n = {(const int*)&(g->adjacencyList[v]->v), 1};
   return n;
 }

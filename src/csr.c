@@ -110,16 +110,14 @@ add_edge(Graph *g, Edge e) {
     g->vertex_array[i]++;
 }
 
-// Bulk insert. Edges may come in any order. Edges with a missing endpoint or that
-// already exist in the graph are skipped; duplicates inside the batch are the caller's responsibility.
 void
 add_edges(Graph *g, Edge *e, size_t size) {
   int n = g->num_vertices;
   if (size == 0 || n == 0)
     return;
 
-  size_t *added = (size_t*)calloc(n, sizeof(size_t));    // new edges per vertex
-  size_t *write = (size_t*)malloc(n * sizeof(size_t));   // write cursor per vertex
+  size_t *added = (size_t*)calloc(n, sizeof(size_t));
+  size_t *write = (size_t*)malloc(n * sizeof(size_t));
   unsigned char *accepted = (unsigned char*)calloc(size, 1);
   int *new_array = NULL;
   size_t total_new = 0;
@@ -142,7 +140,6 @@ add_edges(Graph *g, Edge *e, size_t size) {
   if (!new_array)
     goto done;
 
-  // Copy the old edges to their new positions and compute the new vertex starts
   size_t pos = 0;
   for (int u = 0; u < n; u++) {
     size_t old_begin = g->vertex_array[u];
@@ -157,7 +154,6 @@ add_edges(Graph *g, Edge *e, size_t size) {
     pos += old_count + added[u];
   }
 
-  // Place the new edges after the old ones of their source vertex
   for (size_t i = 0; i < size; i++)
     if (accepted[i])
       new_array[write[e[i].u]++] = e[i].v;
@@ -191,7 +187,6 @@ int has_edge(Graph *g, Edge e) {
 
 static void
 shrink_edges(Graph *g) {
-  // g->num_edges is already the new size
   if (g->num_edges == 0) {
     free(g->edges_array);
     g->edges_array = NULL;
@@ -239,7 +234,6 @@ erase_vertex(Graph *g, int v) {
   if (g->num_edges == 0)
     return;
 
-  // Compact the edge array in place: drop v's out-edges and every edge pointing to v.
   int write = 0, old_begin = 0;
   for (int i = 0; i < g->num_vertices; i++) {
     int old_end = (i == g->num_vertices-1) ? g->num_edges : g->vertex_array[i+1];
