@@ -58,7 +58,7 @@ jobs:
         run: |
           cd report
           # Reads the CSV from the benchmark folder relative to the report folder
-          python generate_dashboards.py ../benchmark/micro_benchmark.csv
+          python generate_dashboards.py ../micro_benchmark.csv
 
       - name: Create index.html
         run: |
