@@ -53,6 +53,4 @@ benchmark/random_number*
 benchmark/signals.h
 csr_reference/
 datasets/
-*.csv
 *.xlsx
-*.html
